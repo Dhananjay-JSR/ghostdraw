@@ -436,6 +436,18 @@
           return ok({ action, shapeCount: e.getCurrentPageShapeIds().size })
         },
       },
+      {
+        name: 'tldraw_export_svg',
+        description: 'Export shapes (default: all on page) as an SVG string so you can inspect what is drawn.',
+        inputSchema: { type: 'object', properties: { ids: { type: 'array', items: { type: 'string' } } } },
+        annotations: { readOnlyHint: true },
+        execute: async (input) => {
+          const e = getEditor()
+          const { ids } = parse(input)
+          const res = await e.getSvgString(ids ? resolveIds(e, ids) : [...e.getCurrentPageShapeIds()])
+          return res?.svg ?? 'empty page'
+        },
+      },
     ]
   }
 
