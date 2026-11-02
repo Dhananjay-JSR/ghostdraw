@@ -77,6 +77,16 @@ claude mcp add agent-browser -- agent-browser mcp --tools all
 ```
 Then ask Claude to open tldraw.com with the extension (it needs the `--extension` flag, or set `AGENT_BROWSER_EXTENSIONS`) and draw.
 
+**From Claude Code into your own open tab (no bridge):** Google's
+[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) exposes page WebMCP tools as
+`list_webmcp_tools` / `execute_webmcp_tool` when started with `--categoryExperimentalWebmcp`, and attaches to the
+Chrome you already have open with `--autoConnect` (or `--browserUrl http://127.0.0.1:9222`):
+```bash
+claude mcp add chrome -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
+```
+Your Chrome needs the extension loaded and WebMCP enabled (below). This path follows chrome-devtools-mcp's docs;
+it has not been run end-to-end here yet.
+
 **In your own Chrome:** WebMCP is experimental. Start Chrome with
 `--enable-features=WebMCPTesting,DevToolsWebMCPSupport` (the flags agent-browser uses), then go to
 `chrome://extensions` → Developer mode → Load unpacked → `extension/`. You also need an agent that consumes WebMCP in that

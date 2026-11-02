@@ -13,6 +13,7 @@ Each tool's own description is the reference for its inputs. This skill covers h
 - A WebMCP-native agent (one built into the browser) calls `tldraw_*` tools by name.
 - With agent-browser: `agent-browser webmcp invoke <tool> --params '<json>'`. Run `agent-browser webmcp list <tool> --json` for a tool's schema.
 - Through agent-browser's MCP server: call `agent_browser_webmcp_invoke` with `{"tool": "<tool>", "params": {...}}`. It times out at 120 s by default.
+- Through chrome-devtools-mcp: call `list_webmcp_tools`, then `execute_webmcp_tool` with `pageId`, `toolName` and `input` as a JSON **string**, e.g. `"{\"strokes\": [...]}"`.
 
 The tools exist only once the tldraw page has finished loading with the extension installed.
 If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few seconds.
