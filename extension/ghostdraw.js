@@ -158,7 +158,7 @@
 
   // A labelled cursor drawn over the canvas so viewers see the agent move, never teleport.
   const agentCursor = (() => {
-    let el, pagePos, hideTimer, currentLabel = 'Agent'
+    let el, pagePos, hideTimer, currentLabel = 'GhostDraw'
     const show = (editor, label) => {
       if (label) currentLabel = label
       if (!el?.isConnected) {
@@ -511,7 +511,7 @@
     const animateShort = { type: 'boolean', default: true, description: 'false = instant, no cursor' }
     const animate = {
       type: 'boolean', default: true,
-      description: 'true (default): the Agent cursor performs the change like a person (drags boxes out corner to corner, pulls arrows, types labels, drags moved shapes) so the user can watch. Keep the default; use false only for 20+ shapes at once.',
+      description: 'true (default): the GhostDraw cursor performs the change like a person (drags boxes out corner to corner, pulls arrows, types labels, drags moved shapes) so the user can watch. Keep the default; use false only for 20+ shapes at once.',
     }
 
     return [
@@ -556,7 +556,7 @@
       {
         name: 'tldraw_draw_strokes',
         description:
-          'Instant freehand strokes with no cursor. For drawing, use tldraw_pen: users expect to watch the smooth pen and the Agent cursor. Use this tool for the eraser, the laser, or when the user explicitly asks for instant drawing. ' +
+          'Instant freehand strokes with no cursor. For drawing, use tldraw_pen: users expect to watch the smooth pen and the GhostDraw cursor. Use this tool for the eraser, the laser, or when the user explicitly asks for instant drawing. ' +
           'Points are joined with straight segments, so send many closely spaced points (every 5-10 px) for curves. ' +
           'tool per stroke: "draw" (pen, default), "highlight" (translucent marker), "eraser" (deletes every shape the path crosses; creates nothing), "laser" (temporary red trail that fades; creates nothing). ' +
           'Adding pressure [x, y, p] to any point switches that stroke to stylus mode (width follows pressure). closed: true joins the end to the start so fill applies. ' +
@@ -637,14 +637,14 @@
             },
             speed: { type: 'number', minimum: 100, maximum: 5000, default: 900, description: 'Pen speed in page px per second' },
             smooth: { type: 'boolean', default: true, description: 'false joins points with straight segments (still animated)' },
-            label: { type: 'string', maxLength: 40, default: 'Agent', description: 'Name shown on the cursor, e.g. your agent or model name' },
+            label: { type: 'string', maxLength: 40, default: 'GhostDraw', description: 'Name shown on the cursor; pass your agent or model name to show it instead' },
           },
           required: ['strokes'],
         },
         execute: (input, ctx) =>
           serially(async () => {
             const e = getEditor()
-            const { strokes, speed = 900, smooth = true, label = 'Agent' } = parse(input)
+            const { strokes, speed = 900, smooth = true, label = 'GhostDraw' } = parse(input)
             const signal = ctx?.signal
             if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
             if (!(num(speed, 'speed') >= 100 && speed <= 5000)) throw new Error('speed must be between 100 and 5000')
@@ -705,7 +705,7 @@
           '"line": points (2-61 page points), spline ("line" straight segments or "cubic" smooth), styles. ' +
           '"arrow": from, to (page point or {"shapeId"}; shape-attached arrows follow their shapes), text (label), bend (px, curves the arrow), kind ("arc" or "elbow"), arrowheadStart/arrowheadEnd (default none/arrow). ' +
           'Create the shapes first, then arrows between their returned ids in a second call. ' +
-          'The Agent cursor draws each shape like a person (about 0.5-1.5 s per shape) so the user can follow along. ' +
+          'The GhostDraw cursor draws each shape like a person (about 0.5-1.5 s per shape) so the user can follow along. ' +
           'Example: {"shapes": [{"type": "geo", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Start", "color": "blue", "fill": "semi"}]}. ' +
           'Returns JSON {created: [summaries with id and bounds]}. On invalid input returns {"error": "..."} and creates nothing.',
         inputSchema: {
@@ -770,7 +770,7 @@
         description:
           'Change existing shapes by id (ids from tldraw_get_canvas or a create call). Only the fields you pass change; all updates are one undo step. ' +
           'x, y moves the top-left corner (page coordinates); rotation is absolute, in radians. w, h resize geo and frame shapes only. text relabels geo, text, note and arrow shapes. geo changes a geo shape\'s kind. name renames a frame. Style fields apply where the shape supports them. ' +
-          'Arrows attached to a moved shape follow it automatically. The Agent cursor grabs and drags moved shapes and pulls resize corners. ' +
+          'Arrows attached to a moved shape follow it automatically. The GhostDraw cursor grabs and drags moved shapes and pulls resize corners. ' +
           'Example: {"updates": [{"id": "shape:abc123", "x": 400, "color": "green", "text": "Done"}]}. ' +
           'Returns JSON {updated: [summaries]}. On an unknown id or invalid value returns {"error": "..."} and changes nothing.',
         inputSchema: {

@@ -31,7 +31,7 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 5. **Fix.** Adjust the existing shapes with `tldraw_update_shapes`: move, resize, recolor, relabel. Keep what is right; redraw only a shape that is wrong in kind. Use `tldraw_history` undo only right after your own call (see the undo gotcha).
 6. **Show.** The camera follows the cursor automatically; finish with `tldraw_view` `zoom_to_shapes` on your ids when the whole result should be in view.
 
-The user watches every change: the Agent cursor drags boxes out, pulls arrows, types labels and draws pen strokes in real time.
+The user watches every change: the GhostDraw cursor drags boxes out, pulls arrows, types labels and draws pen strokes in real time.
 Keep that experience: leave `animate` at its default and draw every picture with `tldraw_pen`. A picture of a thing (house, smiley, tree, car) is a drawing, even when it could be built from circles and rectangles; `tldraw_create_shapes` is for diagrams and labelled boxes.
 
 ## Choosing a tool

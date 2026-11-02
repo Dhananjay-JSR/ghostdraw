@@ -118,7 +118,7 @@ check('pen mode: smooth animated strokes, styles applied, user style and tool re
   assert(elapsed > 250, `pen finished in ${elapsed}ms; expected real-time animation`)
   const after = state(`const P = e.getShapeUtil('draw').constructor.props; return { color: e.getStyleForNextShape(P.color), size: e.getStyleForNextShape(P.size), tool: e.getCurrentToolId() }`)
   assert(after.color === styleBefore.color && after.size === styleBefore.size && after.tool === 'select', `not restored: ${JSON.stringify(after)}`)
-  assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'Agent')`), 'cursor overlay with default label missing')
+  assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'GhostDraw')`), 'cursor overlay with default label missing')
 })
 
 check('pen mode: a loop that repeats its first point and sets closed has no spike at the seam', () => {
