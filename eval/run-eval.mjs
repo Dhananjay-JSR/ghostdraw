@@ -309,6 +309,18 @@ check('view: zoom_to_fit and get_canvas reflect the scene', () => {
   assert(c.shapes.length === count() && c.shapes.length >= 15, `shapes ${c.shapes.length}`)
 })
 
+check('get_canvas: arrows report what they connect; points: true traces freehand strokes', () => {
+  const c = invoke('tldraw_get_canvas')
+  const arrow = c.shapes.find((s) => s.id === ids.arrow2)
+  assert(arrow?.from === ids.mcp && arrow?.to === ids.tl, `arrow ends ${JSON.stringify(arrow)}`)
+  assert(!c.shapes.some((s) => s.points), 'points must be opt-in')
+  const face = invoke('tldraw_get_canvas', { points: true }).shapes.find((s) => s.id === ids.face)
+  assert(face.points.length >= 8 && face.points.length <= 32, `points ${face.points?.length}`)
+  // The face was drawn as a circle of radius 110 about (180, 220): the traced path must still be that circle.
+  const off = Math.max(...face.points.map(([x, y]) => Math.abs(Math.hypot(x - 180, y - 220) - 110)))
+  assert(off < 12, `path strays ${off.toFixed(1)} px from the drawn circle`)
+})
+
 ab('wait', '500')
 ab('screenshot', path.join(out, 'final-scene.png'))
 
