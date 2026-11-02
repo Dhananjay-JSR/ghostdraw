@@ -4,9 +4,12 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { existsSync, mkdtempSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const out = path.join(root, 'eval')
+const downloads = mkdtempSync(path.join(tmpdir(), 'tldraw-webmcp-dl-'))
 const env = { ...process.env, AGENT_BROWSER_SESSION: 'tldraw-webmcp-eval' }
 const headed = process.argv.includes('--headed') ? ['--headed'] : []
 
@@ -43,14 +46,14 @@ const circle = (cx, cy, r, n = 48, a0 = 0, a1 = Math.PI * 2) =>
 
 try { execFileSync('agent-browser', ['close'], { env, stdio: 'ignore' }) } catch {}
 await new Promise((r) => setTimeout(r, 1500)) // daemon needs a moment to release its socket after close
-ab(...headed, '--extension', path.join(root, 'extension'), 'open', 'https://www.tldraw.com/')
+ab(...headed, '--extension', path.join(root, 'extension'), '--download-path', downloads, 'open', 'https://www.tldraw.com/')
 ab('wait', '3000')
 
 let ids = {}
 
 check('extension registers all tools via native WebMCP', () => {
   const tools = ab('webmcp', 'list').tools.map((t) => t.name)
-  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export_svg'])
+  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export'])
     assert(tools.includes(n), `missing ${n}; got ${tools}`)
 })
 
@@ -58,7 +61,7 @@ check('annotations reach the browser under WebMCP names', () => {
   const by = Object.fromEntries(ab('webmcp', 'list').tools.map((t) => [t.name, t.annotations ?? {}]))
   assert(by.tldraw_delete_shapes.consequential === true, `delete not consequential: ${JSON.stringify(by.tldraw_delete_shapes)}`)
   assert(by.tldraw_get_canvas.readOnly === true && by.tldraw_get_canvas.untrustedContent === true, JSON.stringify(by.tldraw_get_canvas))
-  assert(by.tldraw_export_svg.untrustedContent === true, JSON.stringify(by.tldraw_export_svg))
+  assert(by.tldraw_export.untrustedContent === true, JSON.stringify(by.tldraw_export))
 })
 
 check('delete_shapes "all" gives a clean page', () => {
@@ -205,9 +208,28 @@ check('untrusted text is stored as inert text, never executed', () => {
   assert(state('return window.__pwned === undefined'), 'payload executed')
 })
 
-check('export_svg returns the drawing', () => {
-  const svg = invoke('tldraw_export_svg')
+// Decodes a returned data URL in the page and reads the top-left pixel's alpha and the real image size.
+const decode = (dataUrl) =>
+  JSON.parse(ab('eval', `(async () => { const b = await createImageBitmap(await (await fetch(${JSON.stringify(dataUrl)})).blob()); const c = new OffscreenCanvas(b.width, b.height).getContext('2d'); c.drawImage(b, 0, 0); return JSON.stringify({ w: b.width, h: b.height, alpha: c.getImageData(0, 0, 1, 1).data[3] }) })()`).result)
+
+check('export: transparent and opaque PNG, SVG text, jpeg transparency rejected', () => {
+  const clear = invoke('tldraw_export', { ids: [ids.star], format: 'png', transparent: true, deliver: 'return' })
+  const opaque = invoke('tldraw_export', { ids: [ids.star], format: 'png', deliver: 'return', scale: 2 })
+  const a = decode(clear.dataUrl), b = decode(opaque.dataUrl)
+  assert(a.alpha === 0, `transparent corner alpha ${a.alpha}`)
+  assert(b.alpha === 255, `opaque corner alpha ${b.alpha}`)
+  assert(a.w === clear.width && b.w === opaque.width && b.w > a.w, `reported vs real size: ${JSON.stringify({ a, clear: clear.width, b, opaque: opaque.width })}`)
+  const svg = invoke('tldraw_export', { format: 'svg', transparent: true, deliver: 'return' })
   assert(typeof svg === 'string' && svg.startsWith('<svg'), String(svg).slice(0, 80))
+  assert(invoke('tldraw_export', { format: 'jpeg', transparent: true })?.error, 'jpeg+transparent accepted')
+})
+
+check('export: download saves the file in the browser', () => {
+  const r = invoke('tldraw_export', { format: 'png', transparent: true, filename: 'eval board' })
+  assert(r.filename === 'eval-board.png' && r.bytes > 1000, JSON.stringify(r))
+  const file = path.join(downloads, r.filename)
+  for (let i = 0; i < 20 && !existsSync(file); i++) ab('wait', '250')
+  assert(existsSync(file) && statSync(file).size === r.bytes, `download missing or wrong size: ${file}`)
 })
 
 check('view: zoom_to_fit and get_canvas reflect the scene', () => {
