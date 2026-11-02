@@ -361,6 +361,38 @@
           return ok({ deleted: ids.length })
         },
       },
+      {
+        name: 'tldraw_arrange',
+        description:
+          'Organize shapes: select, group, ungroup, align (left|center-horizontal|right|top|center-vertical|bottom), distribute (horizontal|vertical), bring_to_front, send_to_back.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['select', 'group', 'ungroup', 'align', 'distribute', 'bring_to_front', 'send_to_back'] },
+            ids: { description: 'Array of shape ids, or "all" / "selected"', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] },
+            operation: { type: 'string', description: 'For align/distribute', enum: ['left', 'center-horizontal', 'right', 'top', 'center-vertical', 'bottom', 'horizontal', 'vertical'] },
+          },
+          required: ['action', 'ids'],
+        },
+        execute: (input) => {
+          const e = getEditor()
+          const { action, operation } = parse(input)
+          const ids = resolveIds(e, parse(input).ids)
+          e.markHistoryStoppingPoint('webmcp:arrange')
+          const run = {
+            select: () => e.select(...ids),
+            group: () => e.groupShapes(ids),
+            ungroup: () => e.ungroupShapes(ids),
+            align: () => e.alignShapes(ids, operation),
+            distribute: () => e.distributeShapes(ids, operation),
+            bring_to_front: () => e.bringToFront(ids),
+            send_to_back: () => e.sendToBack(ids),
+          }[action]
+          if (!run) throw new Error(`unknown action: ${action}`)
+          run()
+          return ok({ action, ids, selectedIds: e.getSelectedShapeIds() })
+        },
+      },
     ]
   }
 
