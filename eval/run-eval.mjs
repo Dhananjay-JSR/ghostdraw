@@ -98,7 +98,7 @@ check('highlighter tool creates a highlight shape', () => {
 check('pen mode: smooth animated strokes, styles applied, user style and tool restored, cursor shown', () => {
   const styleBefore = state(`const P = e.getShapeUtil('draw').constructor.props; return { color: e.getStyleForNextShape(P.color), size: e.getStyleForNextShape(P.size) }`)
   const t0 = Date.now()
-  const r = invoke('tldraw_pen', { label: 'Claude', speed: 1500, strokes: [
+  const r = invoke('tldraw_pen', { speed: 1500, strokes: [
     { points: [[880, 640], [940, 590], [1000, 640]], color: 'red', size: 'l' },
     { points: [[890, 640], [890, 700], [990, 700], [990, 640]], smooth: false, color: 'blue' },
   ] })
@@ -108,7 +108,7 @@ check('pen mode: smooth animated strokes, styles applied, user style and tool re
   assert(elapsed > 250, `pen finished in ${elapsed}ms; expected real-time animation`)
   const after = state(`const P = e.getShapeUtil('draw').constructor.props; return { color: e.getStyleForNextShape(P.color), size: e.getStyleForNextShape(P.size), tool: e.getCurrentToolId() }`)
   assert(after.color === styleBefore.color && after.size === styleBefore.size && after.tool === 'select', `not restored: ${JSON.stringify(after)}`)
-  assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'Claude')`), 'cursor overlay missing')
+  assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'Agent')`), 'cursor overlay with default label missing')
 })
 
 check('pen mode rejects bad input without drawing or crashing', () => {

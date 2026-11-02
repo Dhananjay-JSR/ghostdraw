@@ -138,8 +138,8 @@
         })
         el.innerHTML =
           '<svg width="22" height="22" viewBox="0 0 22 22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">' +
-          '<path d="M2 2 L2 18 L6.5 13.8 L9.6 20.5 L12.6 19.1 L9.6 12.6 L15.8 12.6 Z" fill="#D97757" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
-          '<span style="margin:16px 0 0 -4px;padding:2px 8px;border-radius:999px;background:#D97757;color:#fff;font:600 12px/1.4 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>'
+          '<path d="M2 2 L2 18 L6.5 13.8 L9.6 20.5 L12.6 19.1 L9.6 12.6 L15.8 12.6 Z" fill="#6D5EF5" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+          '<span style="margin:16px 0 0 -4px;padding:2px 8px;border-radius:999px;background:#6D5EF5;color:#fff;font:600 12px/1.4 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>'
         document.body.append(el)
       }
       el.querySelector('span').textContent = label
@@ -425,14 +425,14 @@
             },
             speed: { type: 'number', minimum: 100, maximum: 5000, default: 900, description: 'Pen speed in page px per second' },
             smooth: { type: 'boolean', default: true, description: 'false joins points with straight segments (still animated)' },
-            label: { type: 'string', maxLength: 40, default: 'Claude', description: 'Name shown on the cursor' },
+            label: { type: 'string', maxLength: 40, default: 'Agent', description: 'Name shown on the cursor, e.g. your agent or model name' },
           },
           required: ['strokes'],
         },
         execute: (input, ctx) =>
           serially(async () => {
             const e = getEditor()
-            const { strokes, speed = 900, smooth = true, label = 'Claude' } = parse(input)
+            const { strokes, speed = 900, smooth = true, label = 'Agent' } = parse(input)
             const signal = ctx?.signal
             if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
             if (!(num(speed, 'speed') >= 100 && speed <= 5000)) throw new Error('speed must be between 100 and 5000')
