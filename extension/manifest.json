@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "tldraw WebMCP",
+  "version": "0.1.0",
+  "description": "Exposes an open tldraw.com board as WebMCP tools so AI agents can draw, use the pen and edit shapes.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.tldraw.com/*", "https://tldraw.com/*"],
+      "js": ["tldraw-webmcp.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
