@@ -125,6 +125,57 @@
     return out
   }
 
+  // A labelled cursor drawn over the canvas so viewers see the agent's pen move instead of strokes appearing.
+  const agentCursor = (() => {
+    let el, pagePos, hideTimer
+    const show = (editor, label) => {
+      if (!el?.isConnected) {
+        el = document.createElement('div')
+        el.setAttribute('aria-hidden', 'true')
+        Object.assign(el.style, {
+          position: 'fixed', left: '0', top: '0', zIndex: '2147483647', pointerEvents: 'none',
+          transition: 'opacity 300ms', willChange: 'transform', display: 'flex', alignItems: 'flex-start',
+        })
+        el.innerHTML =
+          '<svg width="22" height="22" viewBox="0 0 22 22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">' +
+          '<path d="M2 2 L2 18 L6.5 13.8 L9.6 20.5 L12.6 19.1 L9.6 12.6 L15.8 12.6 Z" fill="#D97757" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>' +
+          '<span style="margin:16px 0 0 -4px;padding:2px 8px;border-radius:999px;background:#D97757;color:#fff;font:600 12px/1.4 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>'
+        document.body.append(el)
+      }
+      el.querySelector('span').textContent = label
+      clearTimeout(hideTimer)
+      el.style.opacity = '1'
+      if (!pagePos) {
+        // First appearance: enter from the bottom-right of the viewport rather than popping in at the stroke.
+        const vp = editor.getViewportPageBounds()
+        pagePos = { x: vp.maxX - vp.w * 0.1, y: vp.maxY - vp.h * 0.1 }
+      }
+      place(editor, pagePos)
+    }
+    const place = (editor, p) => {
+      pagePos = { x: p.x, y: p.y }
+      const s = editor.pageToScreen(pagePos)
+      el.style.transform = `translate(${s.x}px, ${s.y}px)`
+    }
+    const glide = async (editor, to, signal) => {
+      const from = pagePos
+      const ms = Math.min(700, Math.max(150, Math.hypot(to.x - from.x, to.y - from.y) / 1.5))
+      const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+      const t0 = performance.now()
+      for (let t = 0; t < 1 && !signal?.aborted; ) {
+        await nextFrame()
+        t = Math.min(1, (performance.now() - t0) / ms)
+        const k = ease(t)
+        place(editor, { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k })
+      }
+    }
+    const hideSoon = () => {
+      clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => el && (el.style.opacity = '0'), 1500)
+    }
+    return { show, place, glide, hideSoon }
+  })()
+
   // rAF never fires in a background tab; the timer keeps drawing going there (progress is time-based, so it just batches more).
   const nextFrame = () => new Promise((r) => { requestAnimationFrame(r); setTimeout(r, 100) })
 
@@ -150,6 +201,7 @@
         await nextFrame()
         const reach = ((performance.now() - t0) / 1000) * speed
         for (; i < samples.length && dist[i] <= reach; i++) editor.dispatch({ ...base, name: 'pointer_move', point: screen(samples[i]) })
+        agentCursor.place(editor, { x: samples[i - 1][0], y: samples[i - 1][1] })
       }
     } finally {
       editor.dispatch({ ...base, name: 'pointer_up', point: screen(samples[i - 1]) })
@@ -333,7 +385,7 @@
       {
         name: 'tldraw_pen',
         description:
-          'Pen mode: draw like a person. Give a few control points per stroke; they are joined with a smooth curve and drawn in real time. Slower than tldraw_draw_strokes but looks hand-drawn. Points are page coordinates [x, y] or [x, y, pressure 0..1]. 4-12 points per stroke is usually enough for a smooth curve.',
+          'Pen mode: draw like a person. Give a few control points per stroke; they are joined with a smooth curve and drawn in real time while a labelled cursor glides between strokes and follows the pen. Slower than tldraw_draw_strokes but looks hand-drawn. Points are page coordinates [x, y] or [x, y, pressure 0..1]. 4-12 points per stroke is usually enough for a smooth curve.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -354,13 +406,14 @@
             },
             speed: { type: 'number', minimum: 100, maximum: 5000, default: 900, description: 'Pen speed in page px per second' },
             smooth: { type: 'boolean', default: true, description: 'false joins points with straight segments (still animated)' },
+            label: { type: 'string', maxLength: 40, default: 'Claude', description: 'Name shown on the cursor' },
           },
           required: ['strokes'],
         },
         execute: (input, ctx) =>
           serially(async () => {
             const e = getEditor()
-            const { strokes, speed = 900, smooth = true } = parse(input)
+            const { strokes, speed = 900, smooth = true, label = 'Claude' } = parse(input)
             const signal = ctx?.signal
             if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
             if (!(num(speed, 'speed') >= 100 && speed <= 5000)) throw new Error('speed must be between 100 and 5000')
@@ -387,9 +440,11 @@
 
             e.markHistoryStoppingPoint('webmcp:pen')
             const created = []
+            agentCursor.show(e, String(label).slice(0, 40))
             try {
               for (const { s, tool, isPen, samples } of plans) {
                 if (signal?.aborted) break
+                await agentCursor.glide(e, { x: samples[0][0], y: samples[0][1] }, signal)
                 setStyles({ ...saved, ...Object.fromEntries(keys.map((k) => [k, s[k]])) })
                 const before = new Set(e.getCurrentPageShapeIds())
                 await animatedGesture(e, tool, samples, { isPen, speed, signal })
@@ -398,6 +453,7 @@
             } finally {
               setStyles(saved)
               e.setCurrentTool(prevTool)
+              agentCursor.hideSoon()
             }
             if (signal?.aborted) throw new Error(`aborted after ${created.length} stroke(s)`)
             return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
