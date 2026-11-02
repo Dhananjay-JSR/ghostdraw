@@ -714,17 +714,72 @@
         },
       },
       {
-        name: 'tldraw_export_svg',
+        name: 'tldraw_export',
         description:
-          'Export shapes as an SVG string (ids optional; default every shape on the page) to inspect exactly what is drawn or hand the image to the user. ' +
-          'Output can be large (hundreds of KB for busy pages); pass ids to export a part, and use tldraw_get_canvas for positions. Returns the SVG text, or "empty page".',
-        inputSchema: { type: 'object', properties: { ids: { type: 'array', items: { type: 'string' } } } },
-        annotations: { readOnlyHint: true, untrustedContentHint: true },
+          'Export the drawing as an image, the same as tldraw\'s Export menu. ' +
+          'format: "png" (default), "svg", "jpeg" or "webp". transparent: true drops the background (png, webp, svg; jpeg cannot be transparent). ' +
+          'ids: array or "selected" to export part of the page; default is every shape. padding: px around the shapes (tldraw default 32). scale: size multiplier 0.1-8 (default 1). darkMode: render in dark theme. ' +
+          'deliver: "download" (default) saves the file in the user\'s browser and returns {filename, format, width, height, bytes}; ' +
+          '"return" gives the image to you: SVG as text, other formats as JSON {format, width, height, bytes, dataUrl} (limit 2 MB; lower scale or use download for more). ' +
+          'Example: {"format": "png", "transparent": true, "scale": 2}. Errors return {"error": "..."}.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            format: { type: 'string', enum: ['png', 'svg', 'jpeg', 'webp'], default: 'png' },
+            transparent: { type: 'boolean', default: false, description: 'No background (not for jpeg)' },
+            ids: { description: 'Array of shape ids, or "selected"; default all shapes', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] },
+            padding: { type: 'number', minimum: 0, maximum: 1000, description: 'px around the shapes; default 32' },
+            scale: { type: 'number', minimum: 0.1, maximum: 8, default: 1 },
+            darkMode: { type: 'boolean', description: 'Render in dark theme' },
+            deliver: { type: 'string', enum: ['download', 'return'], default: 'download' },
+            filename: { type: 'string', maxLength: 100, description: 'Download name without extension; default the page name' },
+          },
+        },
+        annotations: { untrustedContentHint: true },
         execute: async (input) => {
           const e = getEditor()
-          const { ids } = parse(input)
-          const res = await e.getSvgString(ids ? resolveIds(e, ids) : [...e.getCurrentPageShapeIds()])
-          return res?.svg ?? 'empty page'
+          const { ids, format = 'png', transparent = false, padding, scale = 1, darkMode, deliver = 'download', filename } = parse(input)
+          if (!['png', 'svg', 'jpeg', 'webp'].includes(format)) throw new Error('format must be png, svg, jpeg or webp')
+          if (deliver !== 'download' && deliver !== 'return') throw new Error('deliver must be download or return')
+          if (transparent && format === 'jpeg') throw new Error('jpeg has no transparency; use png, webp or svg')
+          if (!(num(scale, 'scale') >= 0.1 && scale <= 8)) throw new Error('scale must be between 0.1 and 8')
+          if (padding !== undefined && !(num(padding, 'padding') >= 0 && padding <= 1000)) throw new Error('padding must be between 0 and 1000')
+          const shapeIds = ids === undefined ? [...e.getCurrentPageShapeIds()] : resolveIds(e, ids)
+          if (!shapeIds.length) throw new Error('nothing to export: no shapes')
+          const img = await e.toImage(shapeIds, {
+            format, scale, background: !transparent,
+            ...(padding !== undefined && { padding }),
+            ...(darkMode !== undefined && { darkMode: !!darkMode }),
+          })
+          const { blob } = img
+          // toImage reports CSS size, but rasters render at pixelRatio 2; report the real pixel size.
+          let [width, height] = [Math.round(img.width), Math.round(img.height)]
+          if (format !== 'svg') {
+            const bmp = await createImageBitmap(blob)
+            ;[width, height] = [bmp.width, bmp.height]
+            bmp.close()
+          }
+          const base = String(filename || e.getCurrentPage().name || 'tldraw').replace(/\.(svg|png|jpe?g|webp)$/i, '').replace(/[^\w.-]+/g, '-')
+          const name = `${base}.${format === 'jpeg' ? 'jpg' : format}`
+          if (deliver === 'download') {
+            const url = URL.createObjectURL(blob)
+            const a = Object.assign(document.createElement('a'), { href: url, download: name })
+            document.body.append(a)
+            a.click()
+            a.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 10000)
+            return ok({ delivered: 'download', filename: name, format, width, height, bytes: blob.size })
+          }
+          // shortcut: returned images are capped at 2 MB so a result fits in an agent's context; bigger ones use download
+          if (blob.size > 2e6) throw new Error(`export is ${(blob.size / 1e6).toFixed(1)} MB; lower scale or use deliver "download"`)
+          if (format === 'svg') return await blob.text()
+          const dataUrl = await new Promise((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => resolve(r.result)
+            r.onerror = () => reject(r.error)
+            r.readAsDataURL(blob)
+          })
+          return ok({ format, width, height, bytes: blob.size, dataUrl })
         },
       },
     ]
