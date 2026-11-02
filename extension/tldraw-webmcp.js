@@ -93,6 +93,77 @@
     }
   }
 
+  // Pen mode: centripetal Catmull-Rom (alpha 0.5, no cusps or self-loops) through the control points,
+  // sampled every ~2px of arc length. Points are [x, y, pressure]; pressure is interpolated too.
+  const smoothPath = (pts, closed, smooth) => {
+    const P = pts.map((p) => [p[0], p[1], typeof p[2] === 'number' ? p[2] : 0.5])
+    if (closed) P.push(P[0])
+    const n = P.length
+    const at = (i) => {
+      if (closed) return P[((i % (n - 1)) + (n - 1)) % (n - 1)]
+      if (i < 0) return P[0].map((v, k) => 2 * v - P[1][k]) // reflect so the end segments keep their direction
+      if (i >= n) return P[n - 1].map((v, k) => 2 * v - P[n - 2][k])
+      return P[i]
+    }
+    const knot = (a, b) => Math.max(Math.hypot(b[0] - a[0], b[1] - a[1]) ** 0.5, 1e-4)
+    const lerp = (a, b, ta, tb, u) => a.map((v, k) => ((tb - u) * v + (u - ta) * b[k]) / (tb - ta))
+    const out = [P[0]]
+    for (let i = 0; i < n - 1; i++) {
+      const [p0, p1, p2, p3] = [at(i - 1), P[i], P[i + 1], at(i + 2)]
+      const steps = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 2))
+      const t1 = knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3)
+      for (let s = 1; s <= steps; s++) {
+        if (!smooth) {
+          out.push(lerp(p1, p2, 0, 1, s / steps))
+          continue
+        }
+        const u = t1 + (t2 - t1) * (s / steps)
+        const a1 = lerp(p0, p1, 0, t1, u), a2 = lerp(p1, p2, t1, t2, u), a3 = lerp(p2, p3, t2, t3, u)
+        out.push(lerp(lerp(a1, a2, 0, t2, u), lerp(a2, a3, t1, t3, u), t1, t2, u))
+      }
+    }
+    return out
+  }
+
+  // rAF never fires in a background tab; the timer keeps drawing going there (progress is time-based, so it just batches more).
+  const nextFrame = () => new Promise((r) => { requestAnimationFrame(r); setTimeout(r, 100) })
+
+  // Plays samples through tldraw's tool at `speed` px/s of page distance, one batch per animation frame.
+  const animatedGesture = async (editor, tool, samples, { isPen, speed, signal }) => {
+    const base = {
+      type: 'pointer', target: 'canvas', pointerId: 1, button: 0, isPen,
+      shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
+    }
+    const screen = (p) => {
+      const s = editor.pageToScreen({ x: p[0], y: p[1] })
+      return { x: s.x, y: s.y, z: isPen ? Math.min(1, Math.max(0.01, p[2])) : 0.5 }
+    }
+    const dist = [0]
+    for (let i = 1; i < samples.length; i++)
+      dist.push(dist[i - 1] + Math.hypot(samples[i][0] - samples[i - 1][0], samples[i][1] - samples[i - 1][1]))
+    editor.setCurrentTool(tool)
+    editor.dispatch({ ...base, name: 'pointer_down', point: screen(samples[0]) })
+    let i = 1
+    try {
+      const t0 = performance.now()
+      while (i < samples.length && !signal?.aborted) {
+        await nextFrame()
+        const reach = ((performance.now() - t0) / 1000) * speed
+        for (; i < samples.length && dist[i] <= reach; i++) editor.dispatch({ ...base, name: 'pointer_move', point: screen(samples[i]) })
+      }
+    } finally {
+      editor.dispatch({ ...base, name: 'pointer_up', point: screen(samples[i - 1]) })
+    }
+  }
+
+  // One pen session at a time: interleaved pointer streams would merge into a single scribble.
+  let penQueue = Promise.resolve()
+  const serially = (fn) => {
+    const run = penQueue.then(fn, fn)
+    penQueue = run.catch(() => {})
+    return run
+  }
+
   const resolveIds = (editor, ids) => {
     if (ids === 'all') return [...editor.getCurrentPageShapeIds()]
     if (ids === 'selected') return editor.getSelectedShapeIds()
@@ -258,6 +329,79 @@
           })
           return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
         },
+      },
+      {
+        name: 'tldraw_pen',
+        description:
+          'Pen mode: draw like a person. Give a few control points per stroke; they are joined with a smooth curve and drawn in real time. Slower than tldraw_draw_strokes but looks hand-drawn. Points are page coordinates [x, y] or [x, y, pressure 0..1]. 4-12 points per stroke is usually enough for a smooth curve.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            strokes: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                properties: {
+                  points: { type: 'array', items: point, minItems: 2 },
+                  tool: { type: 'string', enum: ['draw', 'highlight'], default: 'draw' },
+                  closed: { type: 'boolean', description: 'Join the end back to the start smoothly (lets fill apply)' },
+                  smooth: { type: 'boolean', description: 'Override the call-level smooth for this stroke (false keeps sharp corners)' },
+                  ...styleSchema,
+                },
+                required: ['points'],
+              },
+            },
+            speed: { type: 'number', minimum: 100, maximum: 5000, default: 900, description: 'Pen speed in page px per second' },
+            smooth: { type: 'boolean', default: true, description: 'false joins points with straight segments (still animated)' },
+          },
+          required: ['strokes'],
+        },
+        execute: (input, ctx) =>
+          serially(async () => {
+            const e = getEditor()
+            const { strokes, speed = 900, smooth = true } = parse(input)
+            const signal = ctx?.signal
+            if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
+            if (!(num(speed, 'speed') >= 100 && speed <= 5000)) throw new Error('speed must be between 100 and 5000')
+            const plans = strokes.map((s, i) => {
+              const tool = s.tool ?? 'draw'
+              if (tool !== 'draw' && tool !== 'highlight') throw new Error(`strokes[${i}].tool must be draw or highlight`)
+              if (!Array.isArray(s.points) || s.points.length < 2) throw new Error(`strokes[${i}].points needs at least 2 points`)
+              s.points.forEach((p, j) => {
+                if (!Array.isArray(p) || p.length < 2) throw new Error(`strokes[${i}].points[${j}] must be [x, y] or [x, y, pressure]`)
+                num(p[0], `strokes[${i}].points[${j}][0]`)
+                num(p[1], `strokes[${i}].points[${j}][1]`)
+              })
+              validateProps(e, tool, stylePatch(e, tool, s))
+              const isPen = s.points.some((p) => typeof p[2] === 'number')
+              return { s, tool, isPen, samples: smoothPath(s.points, !!s.closed && s.points.length > 2, s.smooth ?? smooth) }
+            })
+
+            // Style the pen before drawing so the stroke appears in its final color, then restore the user's choice.
+            const styleProps = e.getShapeUtil('draw').constructor.props
+            const keys = ['color', 'fill', 'dash', 'size'].filter((k) => styleProps[k]?.id)
+            const saved = Object.fromEntries(keys.map((k) => [k, e.getStyleForNextShape(styleProps[k])]))
+            const setStyles = (vals) => e.run(() => keys.forEach((k) => vals[k] !== undefined && e.setStyleForNextShapes(styleProps[k], vals[k])), { history: 'ignore' })
+            const prevTool = e.getCurrentToolId()
+
+            e.markHistoryStoppingPoint('webmcp:pen')
+            const created = []
+            try {
+              for (const { s, tool, isPen, samples } of plans) {
+                if (signal?.aborted) break
+                setStyles({ ...saved, ...Object.fromEntries(keys.map((k) => [k, s[k]])) })
+                const before = new Set(e.getCurrentPageShapeIds())
+                await animatedGesture(e, tool, samples, { isPen, speed, signal })
+                created.push(...[...e.getCurrentPageShapeIds()].filter((id) => !before.has(id)))
+              }
+            } finally {
+              setStyles(saved)
+              e.setCurrentTool(prevTool)
+            }
+            if (signal?.aborted) throw new Error(`aborted after ${created.length} stroke(s)`)
+            return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
+          }),
       },
       {
         name: 'tldraw_create_shapes',
