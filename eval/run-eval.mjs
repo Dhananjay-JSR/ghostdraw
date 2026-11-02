@@ -53,7 +53,7 @@ let ids = {}
 
 check('extension registers all tools via native WebMCP', () => {
   const tools = ab('webmcp', 'list').tools.map((t) => t.name)
-  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export'])
+  for (const n of ['tldraw_get_canvas', 'tldraw_guide', 'tldraw_draw_strokes', 'tldraw_pen', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export'])
     assert(tools.includes(n), `missing ${n}; got ${tools}`)
 })
 
@@ -62,6 +62,13 @@ check('annotations reach the browser under WebMCP names', () => {
   assert(by.tldraw_delete_shapes.consequential === true, `delete not consequential: ${JSON.stringify(by.tldraw_delete_shapes)}`)
   assert(by.tldraw_get_canvas.readOnly === true && by.tldraw_get_canvas.untrustedContent === true, JSON.stringify(by.tldraw_get_canvas))
   assert(by.tldraw_export.untrustedContent === true, JSON.stringify(by.tldraw_export))
+})
+
+check('tldraw_guide serves the embedded skill', () => {
+  const g = invoke('tldraw_guide')
+  assert(typeof g === 'string' && g.startsWith('## Workflow') && g.includes('More topics'), String(g).slice(0, 120))
+  assert(String(invoke('tldraw_guide', { topic: 'recipes' })).startsWith('## Recipes'), 'recipes topic')
+  assert(invoke('tldraw_guide', { topic: 'nope' })?.error, 'bad topic accepted')
 })
 
 check('delete_shapes "all" gives a clean page', () => {
@@ -153,6 +160,57 @@ check('arrows bind to shapes (2 bindings each)', () => {
   assert(JSON.stringify(b) === JSON.stringify([[ids.agent, ids.mcp], [ids.mcp, ids.tl]]), JSON.stringify(b))
 })
 
+check('cursor moves continuously while drawing shapes; result exact; one undo step', () => {
+  // Record the cursor's on-screen position every frame while it is visible.
+  ab('eval', `window.__trace = []; window.__tracing = true; (function loop() {
+    const el = document.querySelector('[data-webmcp-cursor]')
+    if (el && getComputedStyle(el).opacity !== '0') { const r = el.getBoundingClientRect(); window.__trace.push([r.x, r.y]) }
+    if (window.__tracing) requestAnimationFrame(loop)
+  })(); true`)
+  const n = count()
+  const r = invoke('tldraw_create_shapes', { shapes: [{ type: 'geo', x: 60, y: 560, w: 200, h: 90, text: 'Dragged out', color: 'violet' }] })
+  const box = r.created[0]
+  invoke('tldraw_create_shapes', { shapes: [{ type: 'arrow', from: { x: 1100, y: 80 }, to: { shapeId: box.id } }] })
+  const trace = JSON.parse(ab('eval', 'window.__tracing = false; JSON.stringify(window.__trace)').result)
+  const steps = trace.slice(1).map((p, i) => Math.hypot(p[0] - trace[i][0], p[1] - trace[i][1]))
+  const maxStep = Math.max(...steps)
+  assert(trace.length > 30, `only ${trace.length} cursor frames recorded`)
+  assert(maxStep < 60, `cursor jumped ${maxStep.toFixed(0)} px in one frame`)
+  assert(box.bounds.w === 200 && box.bounds.h >= 90 && box.text === 'Dragged out', JSON.stringify(box))
+  invoke('tldraw_history', { action: 'undo' })
+  assert(count() === n + 1, `undo should remove only the arrow call: ${count()} vs ${n + 1}`)
+  invoke('tldraw_history', { action: 'redo' })
+})
+
+check('lenient references: labels as ids, ["all"], string arrow ends', () => {
+  const r = invoke('tldraw_create_shapes', { animate: false, shapes: [
+    { type: 'geo', x: 700, y: 560, w: 120, h: 60, text: 'Left' }, { type: 'geo', x: 900, y: 560, w: 120, h: 60, text: 'Right' },
+  ] })
+  const a = invoke('tldraw_create_shapes', { animate: false, shapes: [{ type: 'arrow', from: 'Left', to: 'shape:Right' }] })
+  const bound = state(`return e.getBindingsFromShape(${JSON.stringify(a.created?.[0]?.id)}, 'arrow').map(b => b.toId)`)
+  assert(JSON.stringify(bound) === JSON.stringify(r.created.map((s) => s.id)), `label refs not resolved: ${JSON.stringify({ a, bound })}`)
+  const u = invoke('tldraw_update_shapes', { animate: false, updates: [{ id: 'shape:Left', color: 'green' }] })
+  assert(u.updated?.[0]?.color === 'green', JSON.stringify(u))
+  invoke('tldraw_delete_shapes', { animate: false, ids: [...r.created.map((s) => s.id), a.created[0].id] })
+})
+
+check('off-screen work: camera recenters smoothly onto it and the cursor never jumps', () => {
+  ab('eval', `window.__trace = []; window.__tracing = true; (function loop() {
+    const el = document.querySelector('[data-webmcp-cursor]')
+    if (el && getComputedStyle(el).opacity !== '0') { const r = el.getBoundingClientRect(); window.__trace.push([r.x, r.y]) }
+    if (window.__tracing) requestAnimationFrame(loop)
+  })(); true`)
+  const r = invoke('tldraw_pen', { speed: 2000, strokes: [{ points: [[3000, 2000], [3100, 1950], [3200, 2000]], color: 'orange' }] })
+  const vp = state('return e.getViewportPageBounds()')
+  const sb = r.shapes[0].bounds
+  assert(sb.x >= vp.x && sb.y >= vp.y && sb.x + sb.w <= vp.x + vp.w && sb.y + sb.h <= vp.y + vp.h, `stroke ${JSON.stringify(sb)} not in view ${JSON.stringify(vp)}`)
+  const trace = JSON.parse(ab('eval', 'window.__tracing = false; JSON.stringify(window.__trace)').result)
+  const maxStep = Math.max(...trace.slice(1).map((p, i) => Math.hypot(p[0] - trace[i][0], p[1] - trace[i][1])))
+  assert(maxStep < 60, `cursor jumped ${maxStep.toFixed(0)} px in one frame during recenter`)
+  invoke('tldraw_delete_shapes', { ids: r.created, animate: false })
+  ab('eval', 'editor.setCamera({ x: 0, y: 0, z: 1 }); true')
+})
+
 check('update: moving a shape drags its bound arrow along', () => {
   const before = state(`return e.getShapePageBounds(${JSON.stringify(ids.arrow2)})`)
   invoke('tldraw_update_shapes', { updates: [{ id: ids.tl, x: 960, y: 270, text: 'tldraw.com', color: 'red' }] })
@@ -174,6 +232,10 @@ check('invalid input is rejected and creates nothing', () => {
   const r8 = invoke('tldraw_view', { action: 'set_camera', x: 0, y: 0, z: 0 })
   const r9 = invoke('tldraw_arrange', { action: 'group', ids: [ids.note] })
   const r10 = invoke('tldraw_arrange', { action: 'ungroup', ids: [ids.note] })
+  const r11 = invoke('tldraw_create_shapes', { shapes: [{ type: 'arrow', x: 10, y: 10 }] })
+  assert(/needs "from" and "to"/.test(r11?.error ?? ''), `arrow error should explain from/to: ${JSON.stringify(r11)}`)
+  const r12 = invoke('tldraw_update_shapes', { updates: [{ id: 'shape:nope', x: 1 }] })
+  assert(/on this page: shape:/.test(r12?.error ?? ''), `unknown id error should list real ids: ${JSON.stringify(r12)}`)
   for (const r of [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10]) assert(r?.error, `expected error, got ${JSON.stringify(r)}`)
   assert(count() === n, `shape count changed ${n} -> ${count()}`)
   // A store validation failure crashes tldraw for the user; bad agent input must never get that far.
