@@ -143,16 +143,22 @@
     return out
   }
 
-  // A labelled cursor drawn over the canvas so viewers see the agent's pen move instead of strokes appearing.
+  // Sine ease-in-out: peak speed ~1.6x average, so long moves stay continuous instead of whipping across.
+  const ease = (t) => (1 - Math.cos(Math.PI * t)) / 2
+
+  // A labelled cursor drawn over the canvas so viewers see the agent move, never teleport.
   const agentCursor = (() => {
-    let el, pagePos, hideTimer
+    let el, pagePos, hideTimer, currentLabel = 'Agent'
     const show = (editor, label) => {
+      if (label) currentLabel = label
       if (!el?.isConnected) {
         el = document.createElement('div')
         el.setAttribute('aria-hidden', 'true')
+        el.dataset.webmcpCursor = ''
         Object.assign(el.style, {
           position: 'fixed', left: '0', top: '0', zIndex: '2147483647', pointerEvents: 'none',
-          transition: 'opacity 300ms', willChange: 'transform', display: 'flex', alignItems: 'flex-start',
+          // The short transform transition smooths over throttled frames (busy page, background tab).
+          transition: 'opacity 300ms, transform 50ms linear', willChange: 'transform', display: 'flex', alignItems: 'flex-start',
         })
         el.innerHTML =
           '<svg width="22" height="22" viewBox="0 0 22 22" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))">' +
@@ -160,7 +166,7 @@
           '<span style="margin:16px 0 0 -4px;padding:2px 8px;border-radius:999px;background:#6D5EF5;color:#fff;font:600 12px/1.4 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>'
         document.body.append(el)
       }
-      el.querySelector('span').textContent = label
+      el.querySelector('span').textContent = currentLabel
       clearTimeout(hideTimer)
       el.style.opacity = '1'
       if (!pagePos) {
@@ -175,23 +181,51 @@
       const s = editor.pageToScreen(pagePos)
       el.style.transform = `translate(${s.x}px, ${s.y}px)`
     }
-    const glide = async (editor, to, signal) => {
+    // Moves from wherever the cursor is to `to`; onStep(k) lets a shape grow or move along with it.
+    const move = async (editor, to, ms, onStep, signal) => {
       const from = pagePos
-      const ms = Math.min(700, Math.max(150, Math.hypot(to.x - from.x, to.y - from.y) / 1.5))
-      const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
       const t0 = performance.now()
       for (let t = 0; t < 1 && !signal?.aborted; ) {
         await nextFrame()
         t = Math.min(1, (performance.now() - t0) / ms)
         const k = ease(t)
         place(editor, { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k })
+        onStep?.(k)
       }
+    }
+    const travel = (from, to) => Math.min(900, Math.max(180, Math.hypot(to.x - from.x, to.y - from.y) / 1.2))
+    // Keeps the work in view: when target points fall outside the viewport, the camera pans smoothly to
+    // recenter them (or zooms out if they don't fit). The cursor holds its screen spot while the page slides.
+    const reveal = async (editor, pts, signal) => {
+      if (editor.getCameraOptions().isLocked || !pts.length) return
+      const vp = editor.getViewportPageBounds()
+      const m = Math.min(80, vp.w * 0.1, vp.h * 0.1)
+      const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y)
+      const [minX, maxX, minY, maxY] = [Math.min(...xs) - m, Math.max(...xs) + m, Math.min(...ys) - m, Math.max(...ys) + m]
+      if (minX >= vp.minX && maxX <= vp.maxX && minY >= vp.minY && maxY <= vp.maxY) return
+      const held = editor.pageToScreen(pagePos)
+      const ms = 500
+      if (maxX - minX <= vp.w && maxY - minY <= vp.h) editor.centerOnPoint({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 }, { animation: { duration: ms } })
+      else editor.zoomToBounds({ x: minX, y: minY, w: maxX - minX, h: maxY - minY }, { animation: { duration: ms } })
+      for (const t0 = performance.now(); performance.now() - t0 < ms + 50 && !signal?.aborted; ) await nextFrame()
+      place(editor, editor.screenToPage(held))
+    }
+    const glide = async (editor, to, signal) => {
+      await reveal(editor, [to], signal)
+      if (Math.hypot(to.x - pagePos.x, to.y - pagePos.y) < 1) return
+      await move(editor, to, travel(pagePos, to), null, signal)
+    }
+    // A drag always starts where the cursor is: glide to `from` first, then pull to `to` while onStep runs.
+    const drag = async (editor, from, to, onStep, signal) => {
+      await reveal(editor, [from, to], signal)
+      await glide(editor, from, signal)
+      await move(editor, to, travel(from, to), onStep, signal)
     }
     const hideSoon = () => {
       clearTimeout(hideTimer)
       hideTimer = setTimeout(() => el && (el.style.opacity = '0'), 1500)
     }
-    return { show, place, glide, hideSoon }
+    return { show, place, glide, drag, reveal, hideSoon }
   })()
 
   // rAF never fires in a background tab; the timer keeps drawing going there (progress is time-based, so it just batches more).
@@ -234,7 +268,128 @@
     return run
   }
 
+  // ---- Human-style actions: the cursor performs each change the way a person would ----
+
+  // Types a label in over ~0.7 s at most, then sets the exact final rich text.
+  const typeText = async (editor, id, type, finalRt, signal) => {
+    const text = plainText(finalRt) ?? ''
+    const perFrame = Math.max(1, Math.ceil(text.length / 42))
+    for (let i = perFrame; i < text.length && !signal?.aborted; i += perFrame) {
+      editor.updateShape({ id, type, props: { richText: richText(text.slice(0, i)) } })
+      await nextFrame()
+    }
+    editor.updateShape({ id, type, props: { richText: finalRt } })
+  }
+  const centerOf = (editor, id) => editor.getShapePageBounds(id)?.center ?? editor.getShape(id)
+  const lerp = (a, b, k) => a + (b - a) * k
+
+  // Creates one built shape as a drag: boxes grow corner to corner, lines and arrows are pulled out, text is typed.
+  const animateCreate = async (editor, { shape, bindings = [] }, signal) => {
+    const { id, type, x, y } = shape
+    const { richText: label, ...props } = shape.props
+    const hasLabel = label && plainText(label)
+    // Bring the whole shape into view once up front, so the drag itself never pans mid-way.
+    const extent =
+      type === 'line' ? Object.values(props.points).map((p) => ({ x: x + p.x, y: y + p.y }))
+      : type === 'arrow' ? [{ x, y }, { x: x + props.end.x, y: y + props.end.y }]
+      : type === 'note' ? [{ x, y }, { x: x + 200, y: y + 200 }]
+      : [{ x, y }, { x: x + (props.w ?? 0), y: y + (props.h ?? 0) }]
+    await agentCursor.reveal(editor, extent, signal)
+    if (type === 'geo' || type === 'frame') {
+      await agentCursor.glide(editor, { x, y }, signal)
+      editor.createShape({ ...shape, props: { ...props, w: 1, h: 1 } })
+      await agentCursor.drag(editor, { x, y }, { x: x + props.w, y: y + props.h },
+        (k) => editor.updateShape({ id, type, props: { w: Math.max(1, props.w * k), h: Math.max(1, props.h * k) } }), signal)
+      editor.updateShape({ id, type, props: { w: props.w, h: props.h } })
+    } else if (type === 'note' || type === 'text') {
+      await agentCursor.glide(editor, { x, y }, signal)
+      editor.createShape({ ...shape, props: { ...props, richText: richText('') } })
+    } else if (type === 'line') {
+      const pts = Object.values(props.points).sort((a, b) => (a.index < b.index ? -1 : 1))
+      const abs = (p) => ({ x: x + p.x, y: y + p.y })
+      const upTo = (i, moving) => Object.fromEntries([...pts.slice(0, i), { ...pts[i], ...moving }].map((p) => [p.id, p]))
+      await agentCursor.glide(editor, abs(pts[0]), signal)
+      editor.createShape({ ...shape, props: { ...props, points: upTo(1, { x: pts[0].x, y: pts[0].y }) } })
+      for (let i = 1; i < pts.length && !signal?.aborted; i++) {
+        const [a, b] = [pts[i - 1], pts[i]]
+        await agentCursor.drag(editor, abs(a), abs(b),
+          (k) => editor.updateShape({ id, type, props: { points: upTo(i, { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k) }) } }), signal)
+      }
+      editor.updateShape({ id, type, props: { points: props.points } })
+    } else if (type === 'arrow') {
+      const end = { x: x + props.end.x, y: y + props.end.y }
+      await agentCursor.glide(editor, { x, y }, signal)
+      editor.createShape({ ...shape, props: { ...props, end: { x: 0, y: 0 } } })
+      const startB = bindings.filter((b) => b.props.terminal === 'start')
+      if (startB.length) editor.createBindings(startB)
+      await agentCursor.drag(editor, { x, y }, end,
+        (k) => editor.updateShape({ id, type, props: { end: { x: props.end.x * k, y: props.end.y * k } } }), signal)
+      editor.updateShape({ id, type, props: { end: props.end } })
+      const endB = bindings.filter((b) => b.props.terminal === 'end')
+      if (endB.length) editor.createBindings(endB)
+    }
+    if (hasLabel) {
+      await agentCursor.glide(editor, centerOf(editor, id), signal)
+      await typeText(editor, id, type, label, signal)
+    }
+  }
+
+  // Applies one validated patch the way a person would: grab and drag to move, pull the corner to resize.
+  const animateUpdate = async (editor, patch, signal) => {
+    const s = editor.getShape(patch.id)
+    const [dx, dy] = [(patch.x ?? s.x) - s.x, (patch.y ?? s.y) - s.y]
+    const b = editor.getShapePageBounds(s.id)
+    const grow = { w: (patch.props.w ?? s.props.w ?? 0) - (s.props.w ?? 0), h: (patch.props.h ?? s.props.h ?? 0) - (s.props.h ?? 0) }
+    await agentCursor.reveal(editor, [
+      { x: b.minX, y: b.minY }, { x: b.maxX, y: b.maxY },
+      { x: b.minX + dx, y: b.minY + dy }, { x: b.maxX + dx + Math.max(0, grow.w), y: b.maxY + dy + Math.max(0, grow.h) },
+    ], signal)
+    const from = centerOf(editor, s.id)
+    await agentCursor.glide(editor, from, signal)
+    if (dx || dy) {
+      await agentCursor.drag(editor, from, { x: from.x + dx, y: from.y + dy },
+        (k) => editor.updateShape({ id: s.id, type: s.type, x: s.x + dx * k, y: s.y + dy * k }), signal)
+    }
+    const [w0, h0] = [s.props.w, s.props.h]
+    const [w1, h1] = [patch.props.w ?? w0, patch.props.h ?? h0]
+    if (w0 !== undefined && (w1 !== w0 || h1 !== h0)) {
+      const [nx, ny] = [patch.x ?? s.x, patch.y ?? s.y]
+      await agentCursor.drag(editor, { x: nx + w0, y: ny + h0 }, { x: nx + w1, y: ny + h1 },
+        (k) => editor.updateShape({ id: s.id, type: s.type, props: { w: lerp(w0, w1, k), h: lerp(h0, h1, k) } }), signal)
+    }
+    editor.updateShape(patch)
+  }
+
+  // Runs `work` with the cursor shown, or instantly when animate is false.
+  const withCursor = (animate, work) =>
+    serially(async () => {
+      if (!animate) return work()
+      agentCursor.show(getEditor())
+      try { return await work() } finally { agentCursor.hideSoon() }
+    })
+
+  // Agents often guess ids from labels ("shape:A", "Verify"); accept an unambiguous exact label match.
+  const findShape = (editor, ref) => {
+    if (typeof ref !== 'string' || !ref) return undefined
+    const direct = editor.getShape(ref) ?? editor.getShape(`shape:${ref}`)
+    if (direct) return direct
+    const want = ref.replace(/^shape:/, '').trim().toLowerCase()
+    const hits = editor.getCurrentPageShapes().filter(
+      (s) => plainText(s.props.richText)?.trim().toLowerCase() === want || s.props.name?.trim().toLowerCase() === want,
+    )
+    return hits.length === 1 ? hits[0] : undefined
+  }
+  // Lists what does exist so the agent can recover in one step instead of guessing again.
+  const unknownShapes = (editor, refs, where = '') => {
+    const known = editor.getCurrentPageShapesSorted().slice(0, 12).map((s) => {
+      const t = plainText(s.props.richText)
+      return t ? `${s.id} "${t.slice(0, 24)}"` : `${s.id} (${s.type})`
+    })
+    return new Error(`${where}unknown shape ${refs.join(', ')}. Use ids from tldraw_get_canvas or a create result${known.length ? `; on this page: ${known.join(', ')}` : '; the page is empty'}`)
+  }
+
   const resolveIds = (editor, ids) => {
+    if (Array.isArray(ids) && ids.length === 1 && (ids[0] === 'all' || ids[0] === 'selected')) ids = ids[0]
     if (ids === 'all') return [...editor.getCurrentPageShapeIds()]
     if (ids === 'selected') return editor.getSelectedShapeIds()
     if (!Array.isArray(ids)) throw new Error('ids must be an array of shape ids, "all" or "selected"')
@@ -341,6 +496,13 @@
       font: { type: 'string', enum: enumOf(editor, 'geo', 'font'), description: 'Text font: draw (handwritten, default), sans, serif, mono' },
     }
     const strokeTools = ['draw', 'highlight', 'eraser', 'laser'].filter((t) => editor.root.children?.[t])
+    // Full style/animate descriptions live once, in create_shapes; other tools carry bare enums to save tokens per turn.
+    const styleEnums = Object.fromEntries(Object.entries(styleSchema).map(([k, v]) => [k, { type: v.type, enum: v.enum }]))
+    const animateShort = { type: 'boolean', default: true, description: 'false = instant, no cursor' }
+    const animate = {
+      type: 'boolean', default: true,
+      description: 'true (default): the Agent cursor performs the change like a person (drags boxes out corner to corner, pulls arrows, types labels, drags moved shapes) so the user can watch. Keep the default; use false only for 20+ shapes at once.',
+    }
 
     return [
       {
@@ -487,6 +649,8 @@
             try {
               for (const { s, tool, isPen, samples } of plans) {
                 if (signal?.aborted) break
+                const xs = samples.map((p) => p[0]), ys = samples.map((p) => p[1])
+                await agentCursor.reveal(e, [{ x: Math.min(...xs), y: Math.min(...ys) }, { x: Math.max(...xs), y: Math.max(...ys) }], signal)
                 await agentCursor.glide(e, { x: samples[0][0], y: samples[0][1] }, signal)
                 setStyles({ ...saved, ...Object.fromEntries(keys.map((k) => [k, s[k]])) })
                 const before = new Set(e.getCurrentPageShapeIds())
@@ -513,6 +677,7 @@
           '"line": points (2-61 page points), spline ("line" straight segments or "cubic" smooth), styles. ' +
           '"arrow": from, to (page point or {"shapeId"}; shape-attached arrows follow their shapes), text (label), bend (px, curves the arrow), kind ("arc" or "elbow"), arrowheadStart/arrowheadEnd (default none/arrow). ' +
           'Create the shapes first, then arrows between their returned ids in a second call. ' +
+          'The Agent cursor draws each shape like a person (about 0.5-1.5 s per shape) so the user can follow along. ' +
           'Example: {"shapes": [{"type": "geo", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Start", "color": "blue", "fill": "semi"}]}. ' +
           'Returns JSON {created: [summaries with id and bounds]}. On invalid input returns {"error": "..."} and creates nothing.',
         inputSchema: {
@@ -542,12 +707,13 @@
                 required: ['type'],
               },
             },
+            animate,
           },
           required: ['shapes'],
         },
-        execute: (input) => {
+        execute: (input, ctx) => {
           const e = getEditor()
-          const { shapes } = parse(input)
+          const { shapes, animate = true } = parse(input)
           if (!Array.isArray(shapes) || !shapes.length) throw new Error('shapes must be a non-empty array')
           const built = shapes.map((s, i) => {
             const build = builders[s?.type]
@@ -556,13 +722,19 @@
             validateProps(e, b.shape.type, b.shape.props)
             return b
           })
-          e.markHistoryStoppingPoint('webmcp:create_shapes')
-          e.run(() => {
-            e.createShapes(built.map((b) => b.shape))
-            const bindings = built.flatMap((b) => b.bindings ?? [])
-            if (bindings.length) e.createBindings(bindings)
+          return withCursor(animate, async () => {
+            e.markHistoryStoppingPoint('webmcp:create_shapes')
+            if (animate) {
+              for (const b of built) await animateCreate(e, b, ctx?.signal)
+            } else {
+              e.run(() => {
+                e.createShapes(built.map((b) => b.shape))
+                const bindings = built.flatMap((b) => b.bindings ?? [])
+                if (bindings.length) e.createBindings(bindings)
+              })
+            }
+            return ok({ created: built.map((b) => e.getShape(b.shape.id)).filter(Boolean).map((s) => summarize(e, s)) })
           })
-          return ok({ created: built.map((b) => summarize(e, e.getShape(b.shape.id))) })
         },
       },
       {
@@ -570,7 +742,7 @@
         description:
           'Change existing shapes by id (ids from tldraw_get_canvas or a create call). Only the fields you pass change; all updates are one undo step. ' +
           'x, y moves the top-left corner (page coordinates); rotation is absolute, in radians. w, h resize geo and frame shapes only. text relabels geo, text, note and arrow shapes. geo changes a geo shape\'s kind. name renames a frame. Style fields apply where the shape supports them. ' +
-          'Arrows attached to a moved shape follow it automatically. ' +
+          'Arrows attached to a moved shape follow it automatically. The Agent cursor grabs and drags moved shapes and pulls resize corners. ' +
           'Example: {"updates": [{"id": "shape:abc123", "x": 400, "color": "green", "text": "Done"}]}. ' +
           'Returns JSON {updated: [summaries]}. On an unknown id or invalid value returns {"error": "..."} and changes nothing.',
         inputSchema: {
@@ -593,16 +765,17 @@
                 required: ['id'],
               },
             },
+            animate: animateShort,
           },
           required: ['updates'],
         },
-        execute: (input) => {
+        execute: (input, ctx) => {
           const e = getEditor()
-          const { updates } = parse(input)
+          const { updates, animate = true } = parse(input)
           if (!Array.isArray(updates) || !updates.length) throw new Error('updates must be a non-empty array')
           const patches = updates.map((u, i) => {
-            const shape = e.getShape(u?.id)
-            if (!shape) throw new Error(`updates[${i}].id not found: ${u?.id}`)
+            const shape = findShape(e, u?.id)
+            if (!shape) throw unknownShapes(e, [u?.id], `updates[${i}]: `)
             const props = stylePatch(e, shape.type, u)
             for (const k of ['w', 'h']) if (u[k] !== undefined && k in shape.props) props[k] = num(u[k], k)
             if (u.geo !== undefined && shape.type === 'geo') props.geo = u.geo
@@ -616,9 +789,12 @@
               ...(u.rotation !== undefined && { rotation: num(u.rotation, 'rotation') }),
             }
           })
-          e.markHistoryStoppingPoint('webmcp:update_shapes')
-          e.updateShapes(patches)
-          return ok({ updated: patches.map((p) => summarize(e, e.getShape(p.id))) })
+          return withCursor(animate, async () => {
+            e.markHistoryStoppingPoint('webmcp:update_shapes')
+            if (animate) for (const p of patches) await animateUpdate(e, p, ctx?.signal)
+            else e.updateShapes(patches)
+            return ok({ updated: patches.map((p) => summarize(e, e.getShape(p.id))) })
+          })
         },
       },
       {
@@ -628,17 +804,28 @@
           'An arrow attached to a deleted shape stays; that end becomes a free point. One undo step (tldraw_history undo restores). Returns JSON {deleted: count}. Unknown ids return {"error": "..."} and nothing is deleted.',
         inputSchema: {
           type: 'object',
-          properties: { ids: { description: 'Array of shape ids, or "all" / "selected"', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] } },
+          properties: { ids: { description: 'Array of shape ids, or "all" / "selected"', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] }, animate: animateShort },
           required: ['ids'],
         },
         // WebMCP's hint names (not MCP's destructiveHint): Chrome maps these to consequential / readOnly / untrustedContent.
         annotations: { consequentialHint: true },
-        execute: (input) => {
+        execute: (input, ctx) => {
           const e = getEditor()
-          const ids = resolveIds(e, parse(input).ids)
-          e.markHistoryStoppingPoint('webmcp:delete_shapes')
-          e.deleteShapes(ids)
-          return ok({ deleted: ids.length })
+          const { ids: idsIn, animate = true } = parse(input)
+          const ids = resolveIds(e, idsIn)
+          // Visiting more than a handful of shapes one by one would drag on; sweep only short lists.
+          const visit = animate && ids.length <= 12
+          return withCursor(visit, async () => {
+            e.markHistoryStoppingPoint('webmcp:delete_shapes')
+            if (visit) {
+              for (const id of ids) {
+                if (!e.getShape(id)) continue // already removed with a deleted parent
+                await agentCursor.glide(e, centerOf(e, id), ctx?.signal)
+                e.deleteShapes([id])
+              }
+            } else e.deleteShapes(ids)
+            return ok({ deleted: ids.length })
+          })
         },
       },
       {
@@ -658,12 +845,13 @@
             action: { type: 'string', enum: ['select', 'group', 'ungroup', 'align', 'distribute', 'bring_to_front', 'send_to_back'] },
             ids: { description: 'Array of shape ids, or "all" / "selected"', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] },
             operation: { type: 'string', description: 'For align/distribute', enum: ['left', 'center-horizontal', 'right', 'top', 'center-vertical', 'bottom', 'horizontal', 'vertical'] },
+            animate: animateShort,
           },
           required: ['action', 'ids'],
         },
-        execute: (input) => {
+        execute: (input, ctx) => {
           const e = getEditor()
-          const { action, operation } = parse(input)
+          const { action, operation, animate = true } = parse(input)
           const ids = resolveIds(e, parse(input).ids)
           const ops = { align: ['left', 'center-horizontal', 'right', 'top', 'center-vertical', 'bottom'], distribute: ['horizontal', 'vertical'] }[action]
           if (ops && !ops.includes(operation)) throw new Error(`${action} operation must be one of ${ops.join(', ')}`)
@@ -671,7 +859,6 @@
           const min = { group: 2, align: 2, distribute: 3 }[action] ?? 1
           if (ids.length < min) throw new Error(`${action} needs at least ${min} shapes, got ${ids.length}`)
           if (action === 'ungroup' && !ids.some((id) => e.getShape(id).type === 'group')) throw new Error('ungroup needs at least one group id (type "group" in tldraw_get_canvas)')
-          e.markHistoryStoppingPoint('webmcp:arrange')
           const run = {
             select: () => e.select(...ids),
             group: () => e.groupShapes(ids),
@@ -682,8 +869,13 @@
             send_to_back: () => e.sendToBack(ids),
           }[action]
           if (!run) throw new Error(`unknown action: ${action}`)
-          run()
-          return ok({ action, ids, selectedIds: e.getSelectedShapeIds() })
+          return withCursor(animate, async () => {
+            e.markHistoryStoppingPoint('webmcp:arrange')
+            const b = animate && e.getShapesPageBounds(ids)
+            if (b) await agentCursor.glide(e, b.center, ctx?.signal)
+            run()
+            return ok({ action, ids, selectedIds: e.getSelectedShapeIds() })
+          })
         },
       },
       {
