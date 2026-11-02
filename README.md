@@ -25,6 +25,7 @@ draw strokes in a compressed base64 path format that changes between versions.
 |---|---|
 | `tldraw_get_canvas` | Viewport (page coords), camera, tool, selection, every shape summarized. Read-only. |
 | `tldraw_draw_strokes` | Freehand strokes: `draw` (pen), `highlight`, `eraser`, `laser`. Points `[x,y]` or `[x,y,pressure]` (stylus). Color, size, dash, fill, closed. |
+| `tldraw_pen` | **Pen mode.** A few control points per stroke become a smooth curve (centripetal Catmull-Rom), drawn in real time while a labelled agent cursor glides between strokes and follows the pen. `speed`, `smooth` (call-wide or per stroke), `label`. |
 | `tldraw_create_shapes` | `geo` (20 kinds: rectangle, ellipse, star, …, with labels), `text`, `note`, `frame`, `line` (straight/cubic), `arrow` (bound to shapes, so it follows when they move). |
 | `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. |
 | `tldraw_delete_shapes` | By ids, `"all"` or `"selected"`. |
@@ -34,6 +35,16 @@ draw strokes in a compressed base64 path format that changes between versions.
 | `tldraw_export_svg` | SVG of the drawing, so the agent can check its own work. |
 
 Style enums are read from the live editor at registration time, so the schemas match the running tldraw version.
+
+### Pen mode
+
+![Pen mode: the agent cursor drawing on tldraw](eval/pen-mode.png)
+
+`tldraw_pen` sends pointer events through tldraw's own draw tool on animation frames at a steady speed, so
+tldraw's velocity-based pressure and smoothing behave the same as for a hand-drawn stroke. The cursor is an overlay
+drawn on top of the page (`pointer-events: none`), not the system mouse, so it never blocks the user.
+Calls run one at a time, and your own style picker and tool are restored afterwards. Drawing continues in a
+background tab, just batched more coarsely.
 
 ## Releases
 
