@@ -1,0 +1,73 @@
+# Publishes the extension as a GitHub Release whenever extension/manifest.json carries a version
+# that has not been released yet. To release: bump "version" in the manifest and push to main.
+name: Release extension
+
+on:
+  push:
+    branches: [main]
+    paths: ['extension/**', '.github/workflows/release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate extension
+        run: |
+          node --check extension/tldraw-webmcp.js
+          node -e '
+            const m = require("./extension/manifest.json")
+            if (m.manifest_version !== 3) throw new Error("manifest_version must be 3")
+            if (!/^\d+(\.\d+){0,3}$/.test(m.version)) throw new Error(`invalid Chrome version: ${m.version}`)
+            for (const cs of m.content_scripts) for (const f of cs.js) require("fs").accessSync(`extension/${f}`)
+          '
+
+      - name: Read version
+        id: meta
+        run: echo "tag=v$(node -p 'require("./extension/manifest.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Check for existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.tag }}" > /dev/null 2>&1; then
+            echo "Release ${{ steps.meta.outputs.tag }} already exists; bump the manifest version to publish a new one."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package
+        if: steps.existing.outputs.exists != 'true'
+        run: cd extension && zip -r "../tldraw-webmcp-${{ steps.meta.outputs.tag }}.zip" .
+
+      - name: Publish release
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          cat > notes.md <<'EOF'
+          ## Install
+
+          1. Download `tldraw-webmcp-${TAG}.zip` below and unzip it.
+          2. Start Chrome with WebMCP enabled: `--enable-features=WebMCPTesting,DevToolsWebMCPSupport`
+          3. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
+          4. Open https://www.tldraw.com/ — the tools register as soon as the editor loads.
+
+          With agent-browser: `agent-browser --extension <unzipped folder> open https://www.tldraw.com/`
+          EOF
+          sed -i "s/\${TAG}/${TAG}/g" notes.md
+          gh release create "$TAG" "tldraw-webmcp-${TAG}.zip" \
+            --title "tldraw WebMCP ${TAG}" \
+            --notes-file notes.md \
+            --generate-notes \
+            --target "$GITHUB_SHA"
