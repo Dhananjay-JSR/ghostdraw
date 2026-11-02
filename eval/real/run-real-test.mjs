@@ -34,13 +34,15 @@ const TESTERS = {
 const PROVIDERS = {
   medium: { order: ['Fireworks', 'Parasail', 'Azure'], allow_fallbacks: false },
 }
+// Extra request options per tier: the dummy model's providers reject parallel tool calls outright.
+const TIER_OPTIONS = { dummy: { parallel_tool_calls: false } }
 // Cheap frontier models are the gate; Opus is opt-in because it costs ~20-40x more per run.
 const DEFAULT_TESTERS = ['dummy', 'medium', 'haiku', 'luna']
 const GATE = ['haiku', 'luna', 'sota']
 const JUDGE = process.env.JUDGE_MODEL ?? 'google/gemini-3.8-flash'
 const testers = (arg('--testers')?.split(',') ?? DEFAULT_TESTERS).map((k) => {
   if (!TESTERS[k]) throw new Error(`unknown tester ${k}; use ${Object.keys(TESTERS)}`)
-  return { tier: k, model: TESTERS[k], provider: PROVIDERS[k] }
+  return { tier: k, model: TESTERS[k], provider: PROVIDERS[k], options: TIER_OPTIONS[k] }
 })
 const tasks = arg('--tasks') ? allTasks.filter((t) => arg('--tasks').split(',').includes(t.id)) : allTasks
 // tool (default, what real agents get): only the in-extension tldraw_guide; system: SKILL.md in the system prompt; none: neither.
@@ -86,11 +88,11 @@ const forTester = (output) => {
 
 const SYSTEM = `You control a live tldraw whiteboard in the user's browser through tools. You cannot see the board or any image: rely on tool results (tldraw_get_canvas) to know what is there. Complete the user's request, check your work, then reply with a one-sentence summary.${useSkill ? `\n\nGuide for these tools:\n\n${skill}` : ''}`
 
-const runAgent = async ({ ab }, { model, provider }, prompt, toolDefs) => {
+const runAgent = async ({ ab }, { model, provider, options }, prompt, toolDefs) => {
   const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }]
   const log = { toolCalls: [], turns: 0, toolErrors: 0, badArgs: 0, cost: 0, tokens: 0, final: '', stop: 'max_turns' }
   for (; log.turns < MAX_TURNS; log.turns++) {
-    const res = await chat({ model, ...(provider && { provider }), messages, tools: toolDefs, tool_choice: 'auto', max_tokens: 4096 })
+    const res = await chat({ model, ...(provider && { provider }), ...options, messages, tools: toolDefs, tool_choice: 'auto', max_tokens: 4096 })
     log.cost += res.usage?.cost ?? 0
     log.tokens += res.usage?.total_tokens ?? 0
     const msg = res.choices[0].message
@@ -168,7 +170,7 @@ const judge = async (task, dataUrl) => {
 }
 
 // ---------- run ----------
-const runTester = async ({ tier, model, provider }) => {
+const runTester = async ({ tier, model, provider, options }) => {
   const session = `real-test-${tier}`
   const b = browser(session)
   const downloadsDir = mkdtempSync(path.join(tmpdir(), `tldraw-real-${tier}-`))
@@ -191,7 +193,7 @@ const runTester = async ({ tier, model, provider }) => {
     const t0 = Date.now()
     let log
     try {
-      log = await runAgent(b, { model, provider }, task.prompt, toolDefs)
+      log = await runAgent(b, { model, provider, options }, task.prompt, toolDefs)
     } catch (err) {
       log = { toolCalls: [], turns: 0, toolErrors: 0, badArgs: 0, cost: 0, tokens: 0, final: '', stop: `error: ${err.message.slice(0, 200)}` }
     }
