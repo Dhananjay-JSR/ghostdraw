@@ -28,19 +28,22 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 4. **Check.** Call `tldraw_get_canvas` again and compare it with the plan: every element present, bounds where planned, labels in place, no unintended overlaps.
    When you need the exact rendering, use `tldraw_export` with `format: "svg"`, `deliver: "return"` and your `ids`.
    Done when every planned element matches.
-5. **Fix.** Adjust with `tldraw_update_shapes`. Use `tldraw_history` undo only right after your own call (see the undo gotcha).
-6. **Show.** If your work extends past the viewport, finish with `tldraw_view` `zoom_to_shapes` on your ids.
+5. **Fix.** Adjust the existing shapes with `tldraw_update_shapes`: move, resize, recolor, relabel. Keep what is right; redraw only a shape that is wrong in kind. Use `tldraw_history` undo only right after your own call (see the undo gotcha).
+6. **Show.** The camera follows the cursor automatically; finish with `tldraw_view` `zoom_to_shapes` on your ids when the whole result should be in view.
+
+The user watches every change: the Agent cursor drags boxes out, pulls arrows, types labels and draws pen strokes in real time.
+Keep that experience: leave `animate` at its default and draw anything freehand with `tldraw_pen`.
 
 ## Choosing a tool
 
 | Goal | Tool |
 |---|---|
+| Anything freehand: sketches, doodles, faces, houses, curves, circles, waves, underlines | `tldraw_pen` (few control points, smooth curve, animated cursor) |
 | Boxes, labels, diagrams, sticky notes, frames, exact geometry | `tldraw_create_shapes` |
 | Connectors that stay attached when shapes move | `tldraw_create_shapes` type `arrow` with `{"shapeId"}` ends, in a second call after the shapes exist |
-| Hand-drawn look the user watches being drawn: sketches, doodles, circles, handwriting-like curves | `tldraw_pen` (few control points, smooth curve, animated cursor) |
-| Many freehand strokes fast, or exact point paths | `tldraw_draw_strokes` |
-| Highlighting existing content | `tldraw_draw_strokes` or `tldraw_pen` with `tool: "highlight"` |
+| Highlighting existing content | `tldraw_pen` with `tool: "highlight"` |
 | Erasing an area | `tldraw_draw_strokes` with `tool: "eraser"` crossing the shapes |
+| Instant strokes, only when the user asks for speed | `tldraw_draw_strokes` |
 | Pointing something out without leaving a mark | `tldraw_draw_strokes` with `tool: "laser"` |
 | Moving, recoloring, relabeling | `tldraw_update_shapes` |
 | Tidying | `tldraw_arrange` (align, distribute, group) |
@@ -71,8 +74,9 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 ## Gotchas
 
 - **Errors are results.** A failed call returns `{"error": "..."}` and leaves the board unchanged. Read the message, correct the input, call again.
+- **Ids come from results.** Copy ids exactly from `tldraw_get_canvas` or a create result (`shape:...`). An exact, unique label also works (`"Verify"`).
 - **Undo is shared with the user.** `tldraw_history` undoes the newest change on the board, which may be the user's. Undo right after your own call, and count steps: one per create/update/delete/arrange call, one per stroke for `tldraw_draw_strokes` and `tldraw_pen`.
-- **Pen mode takes real time:** about stroke length / `speed` seconds, plus up to 0.7 s per stroke while the cursor travels. Split big drawings into several calls under ~30 s each. Pen calls run one at a time.
+- **Changes take real time:** pen strokes take about stroke length / `speed` seconds, shapes about 0.5-1.5 s each, plus up to 0.9 s of cursor travel. Split big drawings into several calls under ~30 s each. Calls run one at a time.
 - **Scope of deletion:** delete the ids you created or the ones the user named. `"all"` clears the user's work too, so use it only when they ask for a clean board.
 - **Frames:** shapes drawn over a frame are not placed inside it. Treat frames as visual sections.
 - **Lines:** at most 61 points. For longer paths use `tldraw_draw_strokes`.
