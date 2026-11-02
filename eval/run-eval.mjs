@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const out = path.join(root, 'eval')
-const downloads = mkdtempSync(path.join(tmpdir(), 'tldraw-webmcp-dl-'))
-const env = { ...process.env, AGENT_BROWSER_SESSION: 'tldraw-webmcp-eval' }
+const downloads = mkdtempSync(path.join(tmpdir(), 'ghostdraw-dl-'))
+const env = { ...process.env, AGENT_BROWSER_SESSION: 'ghostdraw-eval' }
 const headed = process.argv.includes('--headed') ? ['--headed'] : []
 
 const ab = (...args) => {

@@ -1,18 +1,18 @@
 // Exposes the tldraw editor on an open tldraw.com tab as WebMCP tools.
 // Runs in the page's MAIN world (extension content script or agent-browser --init-script).
 (() => {
-  if (window.__tldrawWebMCP) return
-  window.__tldrawWebMCP = true
+  if (window.__ghostdraw) return
+  window.__ghostdraw = true
 
   // The agent guide is generated from SKILL.md into guide.js (loaded just before this script).
-  const GUIDE = window.__tldrawWebMCPGuide ?? {}
-  delete window.__tldrawWebMCPGuide
+  const GUIDE = window.__ghostdrawGuide ?? {}
+  delete window.__ghostdrawGuide
   const GUIDE_TOPICS = Object.keys(GUIDE).filter((k) => !['intro', 'reaching'].includes(k))
 
   const mc = document.modelContext || navigator.modelContext
   if (!mc?.registerTool) {
     // shortcut: no polyfill bundled, upgrade by bundling @mcp-b/webmcp-polyfill if non-WebMCP browsers matter
-    console.warn('[tldraw-webmcp] WebMCP (document.modelContext) not available in this browser')
+    console.warn('[ghostdraw] WebMCP (document.modelContext) not available in this browser')
     return
   }
 
@@ -1044,7 +1044,7 @@
     for (const tool of defineTools(editor)) {
       mc.registerTool({ ...tool, execute: safe(tool.execute) })
     }
-    console.info('[tldraw-webmcp] registered tldraw WebMCP tools')
+    console.info('[ghostdraw] registered tldraw tools')
   }
 
   const wait = setInterval(() => {
@@ -1053,7 +1053,7 @@
     try {
       register()
     } catch (err) {
-      console.error('[tldraw-webmcp] registration failed', err)
+      console.error('[ghostdraw] registration failed', err)
     }
   }, 250)
 })()

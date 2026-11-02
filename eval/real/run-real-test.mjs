@@ -49,7 +49,7 @@ const tasks = arg('--tasks') ? allTasks.filter((t) => arg('--tasks').split(',').
 const skillMode = arg('--skill') ?? 'tool'
 if (!['system', 'tool', 'none'].includes(skillMode)) throw new Error('--skill must be system, tool or none')
 const useSkill = skillMode === 'system'
-const skill = readFileSync(path.join(root, 'skills/tldraw-webmcp/SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '')
+const skill = readFileSync(path.join(root, 'skills/ghostdraw/SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n/, '')
 
 // ---------- browser ----------
 const browser = (session) => {
@@ -69,7 +69,7 @@ const chat = async (body) => {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Title': 'tldraw-webmcp real test' },
+      headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', 'X-Title': 'GhostDraw real test' },
       body: JSON.stringify({ ...body, usage: { include: true } }),
     })
     const json = await res.json().catch(() => ({}))

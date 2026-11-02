@@ -1,6 +1,6 @@
 ---
-name: tldraw-webmcp
-description: Draw, diagram and edit on a live tldraw.com board through the tldraw WebMCP extension's tools (tldraw_get_canvas, tldraw_pen, tldraw_create_shapes, ...). Use when asked to sketch, draw, diagram or annotate on tldraw, or when tools named tldraw_* are available.
+name: ghostdraw
+description: Draw, diagram and edit on a live tldraw.com board through the GhostDraw extension's tools (tldraw_get_canvas, tldraw_pen, tldraw_create_shapes, ...). Use when asked to sketch, draw, diagram or annotate on tldraw, or when tools named tldraw_* are available.
 ---
 
 # Drawing on tldraw through WebMCP

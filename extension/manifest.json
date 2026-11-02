@@ -1,12 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "tldraw WebMCP",
+  "name": "GhostDraw",
   "version": "0.5.1",
-  "description": "Exposes an open tldraw.com board as WebMCP tools so AI agents can draw, use the pen and edit shapes.",
+  "description": "AI agents draw on your tldraw.com board while you watch. Works with Claude Code, Codex and MCP agents. Not affiliated with tldraw.",
   "content_scripts": [
     {
-      "matches": ["https://www.tldraw.com/*", "https://tldraw.com/*"],
-      "js": ["guide.js", "tldraw-webmcp.js"],
+      "matches": [
+        "https://www.tldraw.com/*",
+        "https://tldraw.com/*"
+      ],
+      "js": [
+        "guide.js",
+        "ghostdraw.js"
+      ],
       "run_at": "document_idle",
       "world": "MAIN"
     }

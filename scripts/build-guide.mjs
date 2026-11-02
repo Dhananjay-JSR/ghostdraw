@@ -1,4 +1,4 @@
-// Embeds skills/tldraw-webmcp/SKILL.md into the extension as extension/guide.js, so every agent can read the
+// Embeds skills/ghostdraw/SKILL.md into the extension as extension/guide.js, so every agent can read the
 // guide through the tldraw_guide tool, not only agents that have the skill installed.
 // Usage: node scripts/build-guide.mjs          (write)
 //        node scripts/build-guide.mjs --check  (exit 1 if guide.js is out of date; used in CI)
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const skill = readFileSync(path.join(root, 'skills/tldraw-webmcp/SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n+/, '')
+const skill = readFileSync(path.join(root, 'skills/ghostdraw/SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\n+/, '')
 
 // One entry per "## " section, keyed by its first word ("Workflow" -> "workflow"); the intro before them is "intro".
 const sections = {}
@@ -19,8 +19,8 @@ for (const part of parts.slice(1)) {
 }
 
 const out = path.join(root, 'extension/guide.js')
-const js = `// Generated from skills/tldraw-webmcp/SKILL.md by scripts/build-guide.mjs. Do not edit by hand.
-window.__tldrawWebMCPGuide = ${JSON.stringify(sections, null, 2)}
+const js = `// Generated from skills/ghostdraw/SKILL.md by scripts/build-guide.mjs. Do not edit by hand.
+window.__ghostdrawGuide = ${JSON.stringify(sections, null, 2)}
 `
 if (process.argv.includes('--check')) {
   if (!existsSync(out) || readFileSync(out, 'utf8') !== js) {
