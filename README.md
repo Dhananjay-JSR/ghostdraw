@@ -35,6 +35,14 @@ draw strokes in a compressed base64 path format that changes between versions.
 
 Style enums are read from the live editor at registration time, so the schemas match the running tldraw version.
 
+## Releases
+
+Each release on the [Releases page](../../releases) has a `tldraw-webmcp-vX.Y.Z.zip`. Unzip it and use
+**Load unpacked** in `chrome://extensions`.
+
+CI (`.github/workflows/release.yml`) publishes a release whenever `extension/manifest.json` reaches `main`
+with a version that hasn't been released yet. To ship: bump `"version"` and push.
+
 ## Run it
 
 **With agent-browser (it already turns on WebMCP):**
