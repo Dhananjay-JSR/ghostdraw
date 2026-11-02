@@ -19,7 +19,18 @@
   }
 
   const ok = (data) => JSON.stringify(data)
-  const parse = (input) => (typeof input === 'string' ? JSON.parse(input || '{}') : input || {})
+  // Small models often send array fields as JSON-encoded strings ("shapes": "[{...}]"); decode those
+  // array-only fields so the call works instead of failing validation. Text fields are never touched.
+  const ARRAY_FIELDS = ['strokes', 'shapes', 'updates', 'ids']
+  const parse = (input) => {
+    const args = typeof input === 'string' ? JSON.parse(input || '{}') : input || {}
+    for (const k of ARRAY_FIELDS) {
+      if (typeof args[k] === 'string' && args[k].trim().startsWith('[')) {
+        try { args[k] = JSON.parse(args[k]) } catch { /* leave it; validation reports the problem */ }
+      }
+    }
+    return args
+  }
   const num = (v, name) => {
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${name} must be a finite number`)
     return v
@@ -220,18 +231,24 @@
     if (ids === 'all') return [...editor.getCurrentPageShapeIds()]
     if (ids === 'selected') return editor.getSelectedShapeIds()
     if (!Array.isArray(ids)) throw new Error('ids must be an array of shape ids, "all" or "selected"')
-    const missing = ids.filter((id) => !editor.getShape(id))
-    if (missing.length) throw new Error(`unknown shape ids: ${missing.join(', ')}`)
-    return ids
+    const found = ids.map((id) => findShape(editor, id))
+    const missing = ids.filter((_, i) => !found[i])
+    if (missing.length) throw unknownShapes(editor, missing)
+    return found.map((s) => s.id)
   }
 
+  const ARROW_END = 'each arrow needs "from" and "to", each either {"x": 100, "y": 200} or {"shapeId": "shape:..."}'
   const pointOf = (editor, ref, name) => {
-    if (ref?.shapeId) {
-      const b = editor.getShapePageBounds(ref.shapeId)
-      if (!b) throw new Error(`${name}.shapeId not found: ${ref.shapeId}`)
-      return { x: b.center.x, y: b.center.y, shapeId: ref.shapeId }
+    if (ref === undefined || ref === null) throw new Error(`arrow is missing "${name}": ${ARROW_END}`)
+    const id = typeof ref === 'string' ? ref : ref.shapeId ?? ref.id
+    if (id !== undefined) {
+      const s = findShape(editor, id)
+      if (!s) throw unknownShapes(editor, [id], `arrow ${name}: `)
+      const c = editor.getShapePageBounds(s.id).center
+      return { x: c.x, y: c.y, shapeId: s.id }
     }
-    return { x: num(ref?.x, `${name}.x`), y: num(ref?.y, `${name}.y`) }
+    if (typeof ref?.x !== 'number' || typeof ref?.y !== 'number') throw new Error(`arrow "${name}" is invalid: ${ARROW_END}`)
+    return { x: num(ref.x, `${name}.x`), y: num(ref.y, `${name}.y`) }
   }
 
   // Each builder returns the shape record(s) to create plus optional post-create bindings.
