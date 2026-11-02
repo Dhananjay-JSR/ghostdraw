@@ -79,6 +79,15 @@
     }
   }
 
+  const resolveIds = (editor, ids) => {
+    if (ids === 'all') return [...editor.getCurrentPageShapeIds()]
+    if (ids === 'selected') return editor.getSelectedShapeIds()
+    if (!Array.isArray(ids)) throw new Error('ids must be an array of shape ids, "all" or "selected"')
+    const missing = ids.filter((id) => !editor.getShape(id))
+    if (missing.length) throw new Error(`unknown shape ids: ${missing.join(', ')}`)
+    return ids
+  }
+
   const pointOf = (editor, ref, name) => {
     if (ref?.shapeId) {
       const b = editor.getShapePageBounds(ref.shapeId)
@@ -282,6 +291,74 @@
             if (bindings.length) e.createBindings(bindings)
           })
           return ok({ created: built.map((b) => summarize(e, e.getShape(b.shape.id))) })
+        },
+      },
+      {
+        name: 'tldraw_update_shapes',
+        description:
+          'Move, resize, rotate, restyle or relabel existing shapes by id. Only the fields you pass change.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            updates: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' },
+                  rotation: { type: 'number', description: 'Radians' },
+                  text: { type: 'string' },
+                  geo: { type: 'string', enum: [...(geoProps.geo?.values ?? [])] },
+                  name: { type: 'string' },
+                  ...styleSchema,
+                },
+                required: ['id'],
+              },
+            },
+          },
+          required: ['updates'],
+        },
+        execute: (input) => {
+          const e = getEditor()
+          const { updates } = parse(input)
+          if (!Array.isArray(updates) || !updates.length) throw new Error('updates must be a non-empty array')
+          const patches = updates.map((u, i) => {
+            const shape = e.getShape(u?.id)
+            if (!shape) throw new Error(`updates[${i}].id not found: ${u?.id}`)
+            const props = stylePatch(e, shape.type, u)
+            for (const k of ['w', 'h']) if (u[k] !== undefined && k in shape.props) props[k] = num(u[k], k)
+            if (u.geo !== undefined && shape.type === 'geo') props.geo = u.geo
+            if (u.name !== undefined && shape.type === 'frame') props.name = u.name
+            if (u.text !== undefined && 'richText' in shape.props) props.richText = richText(u.text)
+            return {
+              id: shape.id, type: shape.type, props,
+              ...(u.x !== undefined && { x: num(u.x, 'x') }),
+              ...(u.y !== undefined && { y: num(u.y, 'y') }),
+              ...(u.rotation !== undefined && { rotation: num(u.rotation, 'rotation') }),
+            }
+          })
+          e.markHistoryStoppingPoint('webmcp:update_shapes')
+          e.updateShapes(patches)
+          return ok({ updated: patches.map((p) => summarize(e, e.getShape(p.id))) })
+        },
+      },
+      {
+        name: 'tldraw_delete_shapes',
+        description: 'Delete shapes by id, or "all" shapes on the current page, or the "selected" ones. Undoable with tldraw_history.',
+        inputSchema: {
+          type: 'object',
+          properties: { ids: { description: 'Array of shape ids, or "all" / "selected"', oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', enum: ['all', 'selected'] }] } },
+          required: ['ids'],
+        },
+        annotations: { destructiveHint: true },
+        execute: (input) => {
+          const e = getEditor()
+          const ids = resolveIds(e, parse(input).ids)
+          e.markHistoryStoppingPoint('webmcp:delete_shapes')
+          e.deleteShapes(ids)
+          return ok({ deleted: ids.length })
         },
       },
     ]
