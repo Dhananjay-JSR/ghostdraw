@@ -60,11 +60,18 @@
   const plainText = (rt) =>
     rt?.content?.map((p) => p.content?.map((n) => n.text ?? '').join('') ?? '').join('\n') ?? undefined
 
+  const cameraOf = (editor) => { const c = editor.getCamera(); return { x: Math.round(c.x), y: Math.round(c.y), z: +c.z.toFixed(3) } }
+
+  // Compact on purpose: summaries land in an agent's context on every read, so defaults and duplicates are omitted.
+  const DEFAULT_STYLE = { dash: 'draw', fill: 'none', size: 'm', name: '' }
   const summarize = (editor, s) => {
     const b = editor.getShapePageBounds(s.id)
-    const out = { id: s.id, type: s.type, x: Math.round(s.x), y: Math.round(s.y), rotation: s.rotation }
+    const out = { id: s.id, type: s.type }
     if (b) out.bounds = { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) }
-    for (const k of ['geo', 'color', 'fill', 'dash', 'size', 'name']) if (s.props[k] !== undefined) out[k] = s.props[k]
+    // The origin only differs from the bounds' top-left for rotated shapes, arrows and lines.
+    if (!b || Math.round(s.x) !== out.bounds.x || Math.round(s.y) !== out.bounds.y) Object.assign(out, { x: Math.round(s.x), y: Math.round(s.y) })
+    if (s.rotation) out.rotation = +s.rotation.toFixed(3)
+    for (const k of ['geo', 'color', 'fill', 'dash', 'size', 'name']) if (s.props[k] !== undefined && s.props[k] !== DEFAULT_STYLE[k]) out[k] = s.props[k]
     const t = plainText(s.props.richText)
     if (t) out.text = t
     if (s.parentId && !s.parentId.startsWith('page:')) out.parentId = s.parentId
@@ -350,9 +357,9 @@
           const e = getEditor()
           const vp = e.getViewportPageBounds()
           return ok({
-            page: { id: e.getCurrentPageId(), name: e.getCurrentPage().name },
+            page: e.getCurrentPage().name,
             viewport: { x: Math.round(vp.x), y: Math.round(vp.y), w: Math.round(vp.w), h: Math.round(vp.h) },
-            camera: e.getCamera(),
+            camera: cameraOf(e),
             currentTool: e.getCurrentToolId(),
             selectedIds: e.getSelectedShapeIds(),
             shapes: e.getCurrentPageShapesSorted().map((s) => summarize(e, s)),
@@ -545,7 +552,7 @@
           const built = shapes.map((s, i) => {
             const build = builders[s?.type]
             if (!build) throw new Error(`shapes[${i}].type must be one of ${Object.keys(builders).join(', ')}`)
-            const b = build(e, s, `shape:webmcp_${crypto.randomUUID()}`)
+            const b = build(e, s, `shape:${crypto.randomUUID().slice(0, 8)}`) // short ids: they are repeated in every agent turn
             validateProps(e, b.shape.type, b.shape.props)
             return b
           })
@@ -708,7 +715,8 @@
             const b = e.getShapesPageBounds(ids)
             if (b) e.zoomToBounds(b, { inset: 64 })
           } else throw new Error(`unknown action: ${a.action}`)
-          return ok({ camera: e.getCamera(), viewport: e.getViewportPageBounds() })
+          const vp = e.getViewportPageBounds()
+          return ok({ camera: cameraOf(e), viewport: { x: Math.round(vp.x), y: Math.round(vp.y), w: Math.round(vp.w), h: Math.round(vp.h) } })
         },
       },
       {
