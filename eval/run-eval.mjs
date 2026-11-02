@@ -128,8 +128,14 @@ check('invalid input is rejected and creates nothing', () => {
   const r2 = invoke('tldraw_update_shapes', { updates: [{ id: 'shape:does-not-exist', x: 1 }] })
   const r3 = invoke('tldraw_draw_strokes', { strokes: [{ points: [[0, 'x']] }] })
   const r4 = invoke('tldraw_create_shapes', { shapes: [{ type: 'geo', x: 0, y: 0, color: 'not-a-color' }] })
-  for (const r of [r1, r2, r3, r4]) assert(r?.error, `expected error, got ${JSON.stringify(r)}`)
+  const r5 = invoke('tldraw_update_shapes', { updates: [{ id: ids.star, geo: 'blob' }] })
+  const r6 = invoke('tldraw_draw_strokes', { strokes: [{ points: [[0, 0], [10, 10]], size: 'huge' }] })
+  const r7 = invoke('tldraw_arrange', { action: 'align', operation: 'diagonal', ids: [ids.note, ids.star] })
+  const r8 = invoke('tldraw_view', { action: 'set_camera', x: 0, y: 0, z: 0 })
+  for (const r of [r1, r2, r3, r4, r5, r6, r7, r8]) assert(r?.error, `expected error, got ${JSON.stringify(r)}`)
   assert(count() === n, `shape count changed ${n} -> ${count()}`)
+  // A store validation failure crashes tldraw for the user; bad agent input must never get that far.
+  assert(state('return String(e.getCrashingError())') === 'null', 'editor crashed')
 })
 
 check('eraser removes what it crosses; undo restores it', () => {

@@ -26,6 +26,19 @@
   }
   const enumOf = (editor, type, prop) => [...(editor.getShapeUtil(type).constructor.props[prop]?.values ?? [])]
 
+  // Must run before any store write: tldraw treats a store validation failure as fatal and crashes the whole editor.
+  const validateProps = (editor, type, props) => {
+    const validators = editor.getShapeUtil(type).constructor.props
+    for (const [k, v] of Object.entries(props)) {
+      if (!validators[k]) throw new Error(`${type} has no prop "${k}"`)
+      try {
+        validators[k].validate(v)
+      } catch (err) {
+        throw new Error(`${type}.${k}: ${err.message}`)
+      }
+    }
+    return props
+  }
 
   const richText = (text = '') => ({
     type: 'doc',
@@ -222,11 +235,15 @@
           const e = getEditor()
           const { strokes } = parse(input)
           if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
-          e.markHistoryStoppingPoint('webmcp:draw_strokes')
-          const created = []
           strokes.forEach((s, i) => {
             const tool = s.tool ?? 'draw'
             if (!strokeTools.includes(tool)) throw new Error(`strokes[${i}].tool must be one of ${strokeTools.join(', ')}`)
+            if (tool === 'draw' || tool === 'highlight') validateProps(e, tool, stylePatch(e, tool, s))
+          })
+          e.markHistoryStoppingPoint('webmcp:draw_strokes')
+          const created = []
+          strokes.forEach((s) => {
+            const tool = s.tool ?? 'draw'
             const pts = s.closed && s.points?.length > 2 ? [...s.points, s.points[0]] : s.points
             const before = new Set(e.getCurrentPageShapeIds())
             gesture(e, tool, pts, s.points.some((p) => typeof p[2] === 'number'))
@@ -282,7 +299,9 @@
           const built = shapes.map((s, i) => {
             const build = builders[s?.type]
             if (!build) throw new Error(`shapes[${i}].type must be one of ${Object.keys(builders).join(', ')}`)
-            return build(e, s, `shape:webmcp_${crypto.randomUUID()}`)
+            const b = build(e, s, `shape:webmcp_${crypto.randomUUID()}`)
+            validateProps(e, b.shape.type, b.shape.props)
+            return b
           })
           e.markHistoryStoppingPoint('webmcp:create_shapes')
           e.run(() => {
@@ -332,6 +351,7 @@
             if (u.geo !== undefined && shape.type === 'geo') props.geo = u.geo
             if (u.name !== undefined && shape.type === 'frame') props.name = u.name
             if (u.text !== undefined && 'richText' in shape.props) props.richText = richText(u.text)
+            validateProps(e, shape.type, props)
             return {
               id: shape.id, type: shape.type, props,
               ...(u.x !== undefined && { x: num(u.x, 'x') }),
@@ -378,6 +398,8 @@
           const e = getEditor()
           const { action, operation } = parse(input)
           const ids = resolveIds(e, parse(input).ids)
+          const ops = { align: ['left', 'center-horizontal', 'right', 'top', 'center-vertical', 'bottom'], distribute: ['horizontal', 'vertical'] }[action]
+          if (ops && !ops.includes(operation)) throw new Error(`${action} operation must be one of ${ops.join(', ')}`)
           e.markHistoryStoppingPoint('webmcp:arrange')
           const run = {
             select: () => e.select(...ids),
@@ -411,7 +433,10 @@
           const a = parse(input)
           if (a.action === 'zoom_to_fit') e.zoomToFit()
           else if (a.action === 'reset_zoom') e.resetZoom()
-          else if (a.action === 'set_camera') e.setCamera({ x: num(a.x, 'x'), y: num(a.y, 'y'), z: num(a.z ?? 1, 'z') })
+          else if (a.action === 'set_camera') {
+            if (!(num(a.z ?? 1, 'z') > 0)) throw new Error('z must be > 0')
+            e.setCamera({ x: num(a.x, 'x'), y: num(a.y, 'y'), z: a.z ?? 1 })
+          }
           else if (a.action === 'zoom_to_shapes') {
             const ids = resolveIds(e, a.ids)
             const b = e.getShapesPageBounds(ids)
