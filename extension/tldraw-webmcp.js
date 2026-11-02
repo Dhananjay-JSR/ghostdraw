@@ -79,6 +79,15 @@
     }
   }
 
+  const pointOf = (editor, ref, name) => {
+    if (ref?.shapeId) {
+      const b = editor.getShapePageBounds(ref.shapeId)
+      if (!b) throw new Error(`${name}.shapeId not found: ${ref.shapeId}`)
+      return { x: b.center.x, y: b.center.y, shapeId: ref.shapeId }
+    }
+    return { x: num(ref?.x, `${name}.x`), y: num(ref?.y, `${name}.y`) }
+  }
+
   // Each builder returns the shape record(s) to create plus optional post-create bindings.
   const builders = {
     geo: (editor, s, id) => ({
@@ -100,9 +109,51 @@
     frame: (editor, s, id) => ({
       shape: { id, type: 'frame', x: num(s.x, 'x'), y: num(s.y, 'y'), props: { w: num(s.w ?? 320, 'w'), h: num(s.h ?? 180, 'h'), name: s.name ?? '', ...stylePatch(editor, 'frame', s) } },
     }),
+    line: (editor, s, id) => {
+      const pts = s.points
+      // shortcut: single-char base62 fractional indices cap a line at 61 points; use draw_strokes for longer paths
+      if (!Array.isArray(pts) || pts.length < 2 || pts.length > 61) throw new Error('line.points must have 2..61 [x, y] points')
+      const [x0, y0] = [num(pts[0][0], 'points[0][0]'), num(pts[0][1], 'points[0][1]')]
+      const digits = '123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+      const points = {}
+      pts.forEach((p, i) => {
+        const key = 'a' + digits[i]
+        points[key] = { id: key, index: key, x: num(p[0], `points[${i}][0]`) - x0, y: num(p[1], `points[${i}][1]`) - y0 }
+      })
+      return { shape: { id, type: 'line', x: x0, y: y0, props: { points, spline: s.spline ?? 'line', ...stylePatch(editor, 'line', s) } } }
+    },
+    arrow: (editor, s, id) => {
+      const a = pointOf(editor, s.from, 'from')
+      const b = pointOf(editor, s.to, 'to')
+      const bindings = []
+      for (const [terminal, p] of [['start', a], ['end', b]]) {
+        if (p.shapeId) bindings.push({ type: 'arrow', fromId: id, toId: p.shapeId, props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false, snap: 'none' } })
+      }
+      return {
+        shape: {
+          id, type: 'arrow', x: a.x, y: a.y,
+          props: {
+            start: { x: 0, y: 0 }, end: { x: b.x - a.x, y: b.y - a.y },
+            ...(s.bend !== undefined && { bend: num(s.bend, 'bend') }),
+            ...(s.kind && { kind: s.kind }),
+            ...(s.arrowheadStart && { arrowheadStart: s.arrowheadStart }),
+            ...(s.arrowheadEnd && { arrowheadEnd: s.arrowheadEnd }),
+            ...(s.text !== undefined && { richText: richText(s.text) }),
+            ...stylePatch(editor, 'arrow', s),
+          },
+        },
+        bindings,
+      }
+    },
   }
 
   const point = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 3 }
+  const ref = {
+    type: 'object',
+    description: 'Either a page point {x, y} or {shapeId} to attach to that shape',
+    properties: { x: { type: 'number' }, y: { type: 'number' }, shapeId: { type: 'string' } },
+  }
+
   const defineTools = (editor) => {
     const geoProps = editor.getShapeUtil('geo').constructor.props
     const styleSchema = {
@@ -184,7 +235,7 @@
       {
         name: 'tldraw_create_shapes',
         description:
-          'Create structured shapes in page coordinates. type "geo" (rectangle, ellipse, star, ... with optional text label), "text", "note" (sticky note), "frame". Returns created ids.',
+          'Create structured shapes in page coordinates. type "geo" (rectangle, ellipse, star, ... with optional text label), "text", "note" (sticky note), "frame", "line" (polyline through points), "arrow" (from/to page points or shape ids; binding to shapes keeps arrows attached when shapes move). Returns created ids.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -200,6 +251,13 @@
                   geo: { type: 'string', enum: [...(geoProps.geo?.values ?? [])] },
                   text: { type: 'string', description: 'Label / text content; \\n for new lines' },
                   name: { type: 'string', description: 'Frame title' },
+                  points: { type: 'array', items: point, description: 'line: page points' },
+                  spline: { type: 'string', enum: ['line', 'cubic'] },
+                  from: ref, to: ref,
+                  bend: { type: 'number', description: 'arrow curvature in px' },
+                  kind: { type: 'string', enum: enumOf(editor, 'arrow', 'kind') },
+                  arrowheadStart: { type: 'string', enum: enumOf(editor, 'arrow', 'arrowheadStart') },
+                  arrowheadEnd: { type: 'string', enum: enumOf(editor, 'arrow', 'arrowheadEnd') },
                   ...styleSchema,
                 },
                 required: ['type'],
