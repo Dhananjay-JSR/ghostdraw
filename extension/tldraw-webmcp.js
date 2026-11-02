@@ -531,7 +531,8 @@
       {
         name: 'tldraw_draw_strokes',
         description:
-          'Instant freehand drawing through tldraw\'s own tools, as if dragging a mouse along the points. Points are joined with straight segments, so send many closely spaced points (every 5-10 px) for curves; for smooth curves from a few points, or to let the user watch, use tldraw_pen instead. ' +
+          'Instant freehand strokes with no cursor. For drawing, use tldraw_pen: users expect to watch the smooth pen and the Agent cursor. Use this tool for the eraser, the laser, or when the user explicitly asks for instant drawing. ' +
+          'Points are joined with straight segments, so send many closely spaced points (every 5-10 px) for curves. ' +
           'tool per stroke: "draw" (pen, default), "highlight" (translucent marker), "eraser" (deletes every shape the path crosses; creates nothing), "laser" (temporary red trail that fades; creates nothing). ' +
           'Adding pressure [x, y, p] to any point switches that stroke to stylus mode (width follows pressure). closed: true joins the end to the start so fill applies. ' +
           'Example: {"strokes": [{"points": [[100,100],[110,104],[120,106],[130,104],[140,100]], "color": "blue", "size": "l"}]}. ' +
@@ -548,7 +549,7 @@
                   points: { type: 'array', items: point, minItems: 1 },
                   tool: { type: 'string', enum: strokeTools, default: 'draw' },
                   closed: { type: 'boolean', description: 'Close the path back to its first point (lets fill apply)' },
-                  ...styleSchema,
+                  ...styleEnums,
                 },
                 required: ['points'],
               },
@@ -586,8 +587,8 @@
       {
         name: 'tldraw_pen',
         description:
-          'Pen mode: draw like a person while the user watches. Give 3-12 control points per stroke; the curve passes through every point, smoothly (centripetal Catmull-Rom), and is drawn in real time while a labelled cursor glides between strokes and follows the pen. ' +
-          'Use it for sketches, handwriting-like curves, circles and doodles. For sharp corners (boxes, zigzags) set smooth: false on that stroke. For instant drawing, the eraser or the laser, use tldraw_draw_strokes. ' +
+          'Pen mode, the default way to draw anything freehand: strokes, sketches, doodles, curves, circles, underlines, highlights. The user watches it happen. Give 3-12 control points per stroke; the curve passes through every point, smoothly (centripetal Catmull-Rom), and is drawn in real time while a labelled cursor glides between strokes and follows the pen. ' +
+          'For sharp corners (boxes, zigzags) set smooth: false on that stroke. For the eraser or the laser use tldraw_draw_strokes. ' +
           'Timing: the call returns when drawing finishes, after about (total stroke length in px) / speed seconds plus up to 0.7 s per stroke for the cursor to travel; keep one call under ~30 s by splitting big drawings. ' +
           'Example: {"strokes": [{"points": [[200,300],[300,200],[400,300]], "color": "red"}, {"points": [[200,300],[200,450],[400,450],[400,300]], "smooth": false}]}. ' +
           'Returns JSON {created: [ids], shapes: [summaries]}. Each stroke is its own undo step. The user\'s own pen color and tool are restored afterwards. On invalid input returns {"error": "..."} and draws nothing.',
@@ -604,7 +605,7 @@
                   tool: { type: 'string', enum: ['draw', 'highlight'], default: 'draw' },
                   closed: { type: 'boolean', description: 'Join the end back to the start smoothly (lets fill apply)' },
                   smooth: { type: 'boolean', description: 'Override the call-level smooth for this stroke (false keeps sharp corners)' },
-                  ...styleSchema,
+                  ...styleEnums,
                 },
                 required: ['points'],
               },
@@ -760,7 +761,7 @@
                   text: { type: 'string' },
                   geo: { type: 'string', enum: [...(geoProps.geo?.values ?? [])] },
                   name: { type: 'string' },
-                  ...styleSchema,
+                  ...styleEnums,
                 },
                 required: ['id'],
               },
