@@ -5,7 +5,7 @@ name: Release extension
 on:
   push:
     branches: [main]
-    paths: ['extension/**', '.github/workflows/release.yml']
+    paths: ['extension/**', 'skills/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
@@ -66,7 +66,7 @@ jobs:
           With agent-browser: `agent-browser --extension <unzipped folder> open https://www.tldraw.com/`
           EOF
           sed -i "s/\${TAG}/${TAG}/g" notes.md
-          gh release create "$TAG" "tldraw-webmcp-${TAG}.zip" \
+          gh release create "$TAG" "tldraw-webmcp-${TAG}.zip" skills/tldraw-webmcp/SKILL.md \
             --title "tldraw WebMCP ${TAG}" \
             --notes-file notes.md \
             --generate-notes \
