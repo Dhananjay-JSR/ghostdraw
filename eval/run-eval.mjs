@@ -50,7 +50,7 @@ let ids = {}
 
 check('extension registers all tools via native WebMCP', () => {
   const tools = ab('webmcp', 'list').tools.map((t) => t.name)
-  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export_svg'])
+  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen','tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export_svg'])
     assert(tools.includes(n), `missing ${n}; got ${tools}`)
 })
 
@@ -86,6 +86,36 @@ check('highlighter tool creates a highlight shape', () => {
   const r = invoke('tldraw_draw_strokes', { strokes: [{ tool: 'highlight', points: Array.from({ length: 20 }, (_, i) => [70 + i * 16, 540]), color: 'yellow', size: 'xl' }] })
   ids.highlight = r.created[0]
   assert(r.shapes[0].type === 'highlight', JSON.stringify(r.shapes[0]))
+})
+
+check('pen mode: smooth animated strokes, styles applied, user style and tool restored, cursor shown', () => {
+  const styleBefore = state(`const P = e.getShapeUtil('draw').constructor.props; return { color: e.getStyleForNextShape(P.color), size: e.getStyleForNextShape(P.size) }`)
+  const t0 = Date.now()
+  const r = invoke('tldraw_pen', { label: 'Claude', speed: 1500, strokes: [
+    { points: [[880, 640], [940, 590], [1000, 640]], color: 'red', size: 'l' },
+    { points: [[890, 640], [890, 700], [990, 700], [990, 640]], smooth: false, color: 'blue' },
+  ] })
+  const elapsed = Date.now() - t0
+  assert(r.created?.length === 2, JSON.stringify(r))
+  assert(r.shapes[0].color === 'red' && r.shapes[0].size === 'l' && r.shapes[1].color === 'blue', JSON.stringify(r.shapes))
+  assert(elapsed > 250, `pen finished in ${elapsed}ms; expected real-time animation`)
+  const after = state(`const P = e.getShapeUtil('draw').constructor.props; return { color: e.getStyleForNextShape(P.color), size: e.getStyleForNextShape(P.size), tool: e.getCurrentToolId() }`)
+  assert(after.color === styleBefore.color && after.size === styleBefore.size && after.tool === 'select', `not restored: ${JSON.stringify(after)}`)
+  assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'Claude')`), 'cursor overlay missing')
+})
+
+check('pen mode rejects bad input without drawing or crashing', () => {
+  const n = count()
+  const bad = [
+    { strokes: [{ points: [[0, 0]] }] },
+    { strokes: [{ points: [[0, 0], [10, 'x']] }] },
+    { strokes: [{ points: [[0, 0], [10, 10]], color: 'not-a-color' }] },
+    { strokes: [{ points: [[0, 0], [10, 10]], tool: 'eraser' }] },
+    { strokes: [{ points: [[0, 0], [10, 10]] }], speed: 0 },
+  ]
+  for (const p of bad) assert(invoke('tldraw_pen', p)?.error, `expected error for ${JSON.stringify(p)}`)
+  assert(count() === n, 'pen drew despite invalid input')
+  assert(state('return String(e.getCrashingError())') === 'null', 'editor crashed')
 })
 
 check('structured shapes: frame, geo with labels, note, star, cubic line', () => {
