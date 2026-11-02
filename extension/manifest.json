@@ -6,7 +6,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.tldraw.com/*", "https://tldraw.com/*"],
-      "js": ["tldraw-webmcp.js"],
+      "js": ["guide.js", "tldraw-webmcp.js"],
       "run_at": "document_idle",
       "world": "MAIN"
     }

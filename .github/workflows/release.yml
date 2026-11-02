@@ -5,7 +5,7 @@ name: Release extension
 on:
   push:
     branches: [main]
-    paths: ['extension/**', 'skills/**', '.github/workflows/release.yml']
+    paths: ['extension/**', 'skills/**', 'scripts/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,7 @@ jobs:
       - name: Validate extension
         run: |
           node --check extension/tldraw-webmcp.js
+          node scripts/build-guide.mjs --check
           node -e '
             const m = require("./extension/manifest.json")
             if (m.manifest_version !== 3) throw new Error("manifest_version must be 3")
