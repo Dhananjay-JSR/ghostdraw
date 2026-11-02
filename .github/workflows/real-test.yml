@@ -1,0 +1,109 @@
+# Real-agent test: text-only LLM agents (dummy / medium / haiku / luna, optionally Opus as sota) drive the extension's WebMCP tools on live
+# tldraw.com and a vision model grades the result. Comment `/run-real-test` on an issue or PR (owner, members
+# and collaborators only), optionally with `testers=haiku,sota tasks=smiley,flowchart`, or run it manually.
+# Fails only when a frontier tier (haiku, luna, sota) misses a task.
+name: Real-agent test
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      testers:
+        description: Comma-separated tiers (dummy, medium, haiku, luna, sota)
+        default: dummy,medium,haiku,luna
+      tasks:
+        description: Comma-separated task ids; empty runs all
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: real-test
+  cancel-in-progress: false
+
+jobs:
+  real-test:
+    # Only trusted commenters can spend the OpenRouter key; PR code runs with the secret available.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (startsWith(github.event.comment.body, '/run-real-test') &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Acknowledge comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" -f content=eyes > /dev/null
+
+      - name: Resolve what to test
+        id: opts
+        env:
+          COMMENT: ${{ github.event.comment.body }}
+          IS_PR: ${{ github.event.issue.pull_request != null }}
+          NUMBER: ${{ github.event.issue.number }}
+          IN_TESTERS: ${{ inputs.testers }}
+          IN_TASKS: ${{ inputs.tasks }}
+        run: |
+          testers="$IN_TESTERS"; tasks="$IN_TASKS"
+          if [ -n "$COMMENT" ]; then
+            first_line=$(printf '%s' "$COMMENT" | head -n1)
+            testers=$(printf '%s' "$first_line" | grep -oE 'testers=[a-z,]+' | cut -d= -f2 || true)
+            tasks=$(printf '%s' "$first_line" | grep -oE 'tasks=[a-z0-9,-]+' | cut -d= -f2 || true)
+          fi
+          echo "testers=${testers:-dummy,medium,haiku,luna}" >> "$GITHUB_OUTPUT"
+          echo "tasks=$tasks" >> "$GITHUB_OUTPUT"
+          if [ "$IS_PR" = "true" ]; then echo "ref=refs/pull/$NUMBER/head" >> "$GITHUB_OUTPUT"; else echo "ref=" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.opts.outputs.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install agent-browser and Chrome
+        run: |
+          npm install -g agent-browser@0.38.1
+          agent-browser install --with-deps
+
+      - name: Run real-agent test
+        id: run
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TESTERS: ${{ steps.opts.outputs.testers }}
+          TASKS: ${{ steps.opts.outputs.tasks }}
+        run: |
+          args=(--testers "$TESTERS")
+          [ -n "$TASKS" ] && args+=(--tasks "$TASKS")
+          node eval/real/run-real-test.mjs "${args[@]}"
+
+      - name: Upload screenshots and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-test-results
+          path: eval/real/out/
+          if-no-files-found: ignore
+
+      - name: Report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          {
+            if [ -f eval/real/out/report.md ]; then cat eval/real/out/report.md; else echo "## Real-agent test"; echo; echo "No report was produced (outcome: $OUTCOME)."; fi
+            echo
+            echo "Screenshots and full transcripts: [run artifacts]($RUN_URL)"
+          } > body.md
+          cat body.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$NUMBER" ]; then gh issue comment "$NUMBER" --repo "${{ github.repository }}" --body-file body.md; fi
