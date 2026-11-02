@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GhostDraw",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "AI agents draw on your tldraw.com board while you watch. Works with Claude Code, Codex and MCP agents. Not affiliated with tldraw.",
   "icons": {
     "16": "icons/icon16.png",
