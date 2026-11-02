@@ -24,6 +24,7 @@
     if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${name} must be a finite number`)
     return v
   }
+  const enumOf = (editor, type, prop) => [...(editor.getShapeUtil(type).constructor.props[prop]?.values ?? [])]
 
 
   const plainText = (rt) =>
@@ -40,7 +41,49 @@
     return out
   }
 
-  const defineTools = () => {
+  // Copies only the style keys the target shape type actually has, so one style object fits every type.
+  const STYLE_KEYS = ['color', 'labelColor', 'fill', 'dash', 'size', 'font', 'align', 'verticalAlign', 'textAlign']
+  const stylePatch = (editor, type, style = {}) => {
+    const defaults = editor.getShapeUtil(type).getDefaultProps()
+    const props = {}
+    for (const k of STYLE_KEYS) if (style[k] !== undefined && k in defaults) props[k] = style[k]
+    return props
+  }
+
+  // Drives tldraw's own tools with synthetic pointer events, exactly like a human pen/mouse.
+  const gesture = (editor, tool, points, isPen) => {
+    if (!Array.isArray(points) || points.length < 1) throw new Error('points must be a non-empty array')
+    const base = {
+      type: 'pointer', target: 'canvas', pointerId: 1, button: 0, isPen,
+      shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, accelKey: false,
+    }
+    const at = (p, i) => {
+      if (!Array.isArray(p) || p.length < 2) throw new Error(`points[${i}] must be [x, y] or [x, y, pressure]`)
+      const s = editor.pageToScreen({ x: num(p[0], `points[${i}][0]`), y: num(p[1], `points[${i}][1]`) })
+      return { x: s.x, y: s.y, z: typeof p[2] === 'number' ? Math.min(1, Math.max(0, p[2])) : 0.5 }
+    }
+    const prevTool = editor.getCurrentToolId()
+    editor.setCurrentTool(tool)
+    try {
+      editor.dispatch({ ...base, name: 'pointer_down', point: at(points[0], 0) })
+      points.slice(1).forEach((p, i) => editor.dispatch({ ...base, name: 'pointer_move', point: at(p, i + 1) }))
+      editor.dispatch({ ...base, name: 'pointer_up', point: at(points.at(-1), points.length - 1) })
+    } finally {
+      editor.setCurrentTool(prevTool)
+    }
+  }
+
+  const point = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 3 }
+  const defineTools = (editor) => {
+    const styleSchema = {
+      color: { type: 'string', enum: enumOf(editor, 'geo', 'color') },
+      fill: { type: 'string', enum: enumOf(editor, 'geo', 'fill') },
+      dash: { type: 'string', enum: enumOf(editor, 'geo', 'dash') },
+      size: { type: 'string', enum: enumOf(editor, 'geo', 'size'), description: 'Stroke / font size' },
+      font: { type: 'string', enum: enumOf(editor, 'geo', 'font') },
+    }
+    const strokeTools = ['draw', 'highlight', 'eraser', 'laser'].filter((t) => editor.root.children?.[t])
+
     return [
       {
         name: 'tldraw_get_canvas',
@@ -59,6 +102,53 @@
             selectedIds: e.getSelectedShapeIds(),
             shapes: e.getCurrentPageShapesSorted().map((s) => summarize(e, s)),
           })
+        },
+      },
+      {
+        name: 'tldraw_draw_strokes',
+        description:
+          'Draw freehand with tldraw\'s real pen tools, like a human dragging a mouse or stylus. Each stroke is a list of page-coordinate points [x, y] or [x, y, pressure 0..1] (pressure enables stylus mode). tool: "draw" (pen), "highlight" (highlighter), "eraser" (erases shapes the path crosses), "laser" (temporary pointer). Use many closely spaced points for smooth curves. Returns ids of created shapes.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            strokes: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                properties: {
+                  points: { type: 'array', items: point, minItems: 1 },
+                  tool: { type: 'string', enum: strokeTools, default: 'draw' },
+                  closed: { type: 'boolean', description: 'Close the path back to its first point (lets fill apply)' },
+                  ...styleSchema,
+                },
+                required: ['points'],
+              },
+            },
+          },
+          required: ['strokes'],
+        },
+        execute: (input) => {
+          const e = getEditor()
+          const { strokes } = parse(input)
+          if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
+          e.markHistoryStoppingPoint('webmcp:draw_strokes')
+          const created = []
+          strokes.forEach((s, i) => {
+            const tool = s.tool ?? 'draw'
+            if (!strokeTools.includes(tool)) throw new Error(`strokes[${i}].tool must be one of ${strokeTools.join(', ')}`)
+            const pts = s.closed && s.points?.length > 2 ? [...s.points, s.points[0]] : s.points
+            const before = new Set(e.getCurrentPageShapeIds())
+            gesture(e, tool, pts, s.points.some((p) => typeof p[2] === 'number'))
+            const fresh = [...e.getCurrentPageShapeIds()].filter((id) => !before.has(id))
+            for (const id of fresh) {
+              const shape = e.getShape(id)
+              const props = stylePatch(e, shape.type, s)
+              if (Object.keys(props).length) e.updateShape({ id, type: shape.type, props })
+            }
+            created.push(...fresh)
+          })
+          return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
         },
       },
     ]
