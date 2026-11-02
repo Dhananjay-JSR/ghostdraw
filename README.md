@@ -1,108 +1,76 @@
-# tldraw WebMCP
+<p align="center">
+  <img src="docs/brand/logo.svg" width="96" alt="GhostDraw logo">
+</p>
 
-A Chrome extension that turns an **already-open tldraw.com tab** into a WebMCP server, so an AI agent can draw with the pen, highlighter and eraser and create, edit, arrange and export shapes.
+<h1 align="center">GhostDraw</h1>
 
-Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **23/23**. Output: `eval/final-scene.png`.
+<p align="center">
+  <b>AI agents draw on your tldraw.com board, while you watch.</b><br>
+  A Chrome extension that gives Claude Code, Codex, DeepSeek and any MCP agent a hand on your board,<br>
+  with a cursor you can see drawing every shape and pen stroke.
+</p>
 
-## How it works
+<p align="center">
+  <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/badge/download-latest%20release-6D5EF5"></a>
+  <a href="../../actions/workflows/release.yml"><img alt="Release build" src="../../actions/workflows/release.yml/badge.svg"></a>
+  <a href="../../actions/workflows/real-test.yml"><img alt="Real-agent test" src="../../actions/workflows/real-test.yml/badge.svg"></a>
+</p>
 
-```
-tldraw.com tab
- └─ extension content script (world: MAIN — not blocked by tldraw.com's CSP)
-     ├─ finds window.editor (undocumented tldraw.com global, resolved per call)
-     └─ document.modelContext.registerTool(...)  ← native WebMCP
-          ├─ pen / highlighter / eraser / laser → synthetic pointer events through editor.dispatch,
-          │   so tldraw's own tools build the stroke (smoothing, pressure, stylus mode)
-          └─ shapes / arrows / edits → editor.createShapes / updateShapes / createBindings
-```
+<p align="center">
+  <img src="docs/demo.gif" width="800" alt="The GhostDraw cursor drags out a flowchart, connects it with arrows, then sketches a wave and a house with the pen">
+</p>
 
-Strokes are drawn by *driving tldraw's own tools*, not by writing stroke records, because tldraw stores
-draw strokes in a compressed base64 path format that changes between versions.
+> GhostDraw is an independent project. It is not affiliated with or endorsed by tldraw, Inc.; "tldraw" is a trademark of tldraw, Inc.
 
-## Tools
+## Why GhostDraw
 
-| Tool | What it does |
-|---|---|
-| `tldraw_get_canvas` | Viewport (page coords), camera, tool, selection, every shape summarized. Read-only. |
-| `tldraw_draw_strokes` | Instant strokes with no cursor: `eraser`, `laser`, or `draw`/`highlight` when the user asks for speed. Points `[x,y]` or `[x,y,pressure]`. |
-| `tldraw_pen` | **Pen mode.** A few control points per stroke become a smooth curve (centripetal Catmull-Rom), drawn in real time while a labelled agent cursor glides between strokes and follows the pen. `speed`, `smooth` (call-wide or per stroke), `label` (default "Agent"). |
-| `tldraw_create_shapes` | `geo` (20 kinds: rectangle, ellipse, star, …, with labels), `text`, `note`, `frame`, `line` (straight/cubic), `arrow` (bound to shapes, so it follows when they move). The Agent cursor draws each one like a person: boxes dragged corner to corner, arrows pulled, lines traced, labels typed (`animate: false` for big batches). |
-| `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. The cursor grabs and drags moved shapes and pulls resize corners. Accepts exact labels as ids. |
-| `tldraw_delete_shapes` | By ids, `"all"` or `"selected"`. Marked consequential (`consequentialHint`) so agents can confirm first. |
-| `tldraw_arrange` | select, group, ungroup, align, distribute, bring_to_front, send_to_back. |
-| `tldraw_view` | zoom_to_fit, zoom_to_shapes, set_camera, reset_zoom. |
-| `tldraw_history` | undo / redo. One step per create/update/delete/arrange call, one per stroke for drawing tools. The stack is shared with the user. |
-| `tldraw_export` | Same as tldraw's Export menu: PNG, SVG, JPEG or WebP, transparent background, padding, scale, dark mode, whole page or selected ids. Downloads the file in the user's browser, or returns it to the agent (SVG text or data URL) so it can inspect its work. |
+- **Your board, not a copy.** It works in the tldraw.com tab you already have open, with your files, your sign-in and your shared rooms.
+  The official tldraw MCP app, by contrast, gives the agent its own canvas inside the chat.
+- **You watch it happen.** A labelled cursor drags boxes out corner to corner, pulls arrows, types labels and draws with tldraw's real pen.
+  The camera follows when the work goes off-screen.
+- **Works with any agent.** Tools are exposed through [WebMCP](https://github.com/webmachinelearning/webmcp), the browser standard for page tools.
+  Desktop agents connect through Chrome's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp); there is nothing to host.
+- **Built for cheap models too.** It accepts the mistakes small models make, its errors say how to fix the call, and it ships its own guide.
+  In CI, DeepSeek v4 Flash, Claude Haiku 5.5 and GPT-5.6 Luna each pass all 7 real drawing tasks ([details](docs/testing.md)).
+- **Safe with your work.** Bad input is rejected before it can touch your board. Every agent call is one undo step, and delete is flagged so agents can ask first.
 
-Style enums are read from the live editor at registration time, so the schemas match the running tldraw version.
-Every description states its coordinate system, return shape and failure behaviour, and the harder tools include an
-example input, so smaller models can call them without trial and error.
+## Quick start
 
-### Agent skill
+**1. Enable WebMCP.** Open `chrome://flags/#enable-webmcp-testing`, set **WebMCP for testing** to **Enabled**, and relaunch Chrome.
 
-[`skills/tldraw-webmcp/SKILL.md`](skills/tldraw-webmcp/SKILL.md) teaches an agent the workflow (look → plan →
-draw → check → show), which tool to pick, sizing rules and recipes (flowcharts, circles, sticky boards). Drop the
-folder into `.claude/skills/` (or your agent's skill or prompt directory). It is also attached to every release.
+<img src="docs/setup/1-flag.png" width="640" alt="chrome://flags with WebMCP for testing">
 
-### Pen mode
+**2. Install GhostDraw.** Download `ghostdraw-vX.Y.Z.zip` from [Releases](../../releases/latest) and unzip it.
+In `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
 
-![Pen mode: the agent cursor drawing on tldraw](eval/pen-mode.png)
+<img src="docs/setup/2-extension.png" width="640" alt="chrome://extensions with GhostDraw loaded">
 
-`tldraw_pen` sends pointer events through tldraw's own draw tool on animation frames at a steady speed, so
-tldraw's velocity-based pressure and smoothing behave the same as for a hand-drawn stroke. The cursor is an overlay
-drawn on top of the page (`pointer-events: none`), not the system mouse, so it never blocks the user.
-Calls run one at a time, and your own style picker and tool are restored afterwards. Drawing continues in a
-background tab, just batched more coarsely.
+**3. Let your agent reach Chrome.** Open `chrome://inspect/#remote-debugging` and tick **Allow remote debugging for this browser instance**.
+This gives the connected agent control of this browser profile, so only connect agents you trust.
 
-## Releases
+<img src="docs/setup/3-remote-debugging.png" width="640" alt="chrome://inspect remote debugging setting">
 
-Each release on the [Releases page](../../releases) has a `tldraw-webmcp-vX.Y.Z.zip`. Unzip it and use
-**Load unpacked** in `chrome://extensions`.
+**4. Connect your agent** (below), open https://www.tldraw.com/, and ask for a drawing.
+For example: *"On my tldraw tab, draw a login flowchart"* or *"sketch a house"*.
 
-CI (`.github/workflows/release.yml`) publishes a release whenever `extension/manifest.json` reaches `main`
-with a version that hasn't been released yet. To ship: bump `"version"` and push.
+<img src="docs/setup/4-agent-drawing.png" width="640" alt="The GhostDraw cursor labelling a flowchart box on tldraw">
 
-## Use it in your own Chrome
+## Connect your agent
 
-No automation tools needed: your normal Chrome, your normal tldraw.com tab, and any agent that speaks MCP.
+All agents use Chrome's MCP server: `--autoConnect` attaches to your running Chrome (144+), and `--categoryExperimentalWebmcp` turns on the page's WebMCP tools.
+Approve the connection prompt in Chrome the first time.
 
-**1. Turn on WebMCP.** Open `chrome://flags/#enable-webmcp-testing`, set **WebMCP for testing** to **Enabled**, and relaunch Chrome.
+<details open>
+<summary><b>Claude Code</b></summary>
 
-![chrome://flags with "WebMCP for testing"](docs/setup/1-flag.png)
-
-**2. Load the extension.** Download `tldraw-webmcp-vX.Y.Z.zip` from [Releases](../../releases) and unzip it.
-Open `chrome://extensions`, switch on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
-
-![chrome://extensions with tldraw WebMCP loaded](docs/setup/2-extension.png)
-
-**3. Open https://www.tldraw.com/.** The tools register as soon as the board loads. To check, open DevTools: the console shows `[tldraw-webmcp] registered tldraw WebMCP tools`.
-
-**4. Let your agent reach the tab.** Agents outside the browser connect through Google's
-[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp). It attaches to the Chrome you already
-have open (Chrome 144+) and exposes the page's WebMCP tools as `list_webmcp_tools` and `execute_webmcp_tool`.
-Open `chrome://inspect/#remote-debugging`, tick **Allow remote debugging for this browser instance**, and accept
-the prompt the first time an agent connects.
-
-![chrome://inspect remote debugging](docs/setup/3-remote-debugging.png)
-
-Remote debugging gives the connected agent control of this browser profile, so enable it only for agents you trust.
-
-**5. Ask for a drawing.** For example: "On my tldraw tab, draw a login flowchart" or "sketch a house".
-The agent cursor draws it in front of you: boxes dragged out, arrows pulled, labels typed, and freehand drawing with the pen.
-
-![The Agent cursor drawing a flowchart on tldraw](docs/setup/4-agent-drawing.png)
-
-### Plug it into an agent
-
-Every agent uses the same MCP server; only the config syntax differs.
-`--autoConnect` attaches to your running Chrome, and `--categoryExperimentalWebmcp` turns on the WebMCP tools (they are off by default).
-
-**Claude Code**
 ```bash
 claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
 ```
+</details>
 
-**Codex**
+<details>
+<summary><b>Codex</b></summary>
+
 ```bash
 codex mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
 ```
@@ -112,80 +80,91 @@ or in `~/.codex/config.toml`:
 command = "npx"
 args = ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"]
 ```
+</details>
 
-**DeepSeek, or any other harness**
-- **Harness speaks MCP** (most agent frameworks do): add the same server with its usual `mcpServers` JSON:
-  ```json
-  { "mcpServers": { "chrome-devtools": { "command": "npx", "args": ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"] } } }
-  ```
-- **Your own tool-calling loop on the raw API:** connect an MCP client to that server. Then run three steps:
-  1. Call `list_webmcp_tools` to get the tldraw tools and their JSON schemas, and offer them to the model as functions.
-  2. Run each call the model makes with `execute_webmcp_tool` (`pageId`, `toolName`, and `input` as a JSON string).
-  3. Return the result text to the model.
+<details>
+<summary><b>DeepSeek, or any other agent harness</b></summary>
 
-  `eval/real/run-real-test.mjs` (`runAgent`) is a working reference for that loop with DeepSeek, Haiku and GPT models.
-  Use a provider that passes tool arguments through intact: on OpenRouter, DeepSeek v4 Flash via DeepInfra (fp8) drops arguments (see Testing).
-
-Tell the agent to call `tldraw_guide` first, or install [`skills/tldraw-webmcp`](skills/tldraw-webmcp/SKILL.md) as a skill.
-Smaller models draw noticeably better with the guide.
-
-> Status: each step above follows Chrome's and chrome-devtools-mcp's documentation, and the flag, the extension and remote-debugging pages are real screenshots.
-> The full chain from a desktop agent through chrome-devtools-mcp has not been run end to end yet.
-> The tools themselves are verified in Chrome 154 by both test layers below.
-
-### Automation and CI
-
-For scripted runs and CI, [agent-browser](https://github.com/vercel-labs/agent-browser) launches Chrome with WebMCP already enabled:
-```bash
-agent-browser --extension ./extension open https://www.tldraw.com/
-agent-browser webmcp invoke tldraw_pen --params '{"strokes":[{"points":[[100,300],[200,200],[300,300]],"color":"red"}]}'
+If your harness speaks MCP, add the same server:
+```json
+{ "mcpServers": { "chrome-devtools": { "command": "npx", "args": ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"] } } }
 ```
-Both test layers use this path.
+For your own tool-calling loop on a raw API, connect an MCP client to that server, then:
+1. Call `list_webmcp_tools` and offer the tldraw tools to the model as functions.
+2. Run each call with `execute_webmcp_tool` (`pageId`, `toolName`, and `input` as a JSON string).
+3. Return the result text to the model.
+
+[`runAgent` in eval/real/run-real-test.mjs](eval/real/run-real-test.mjs) is a working reference for that loop.
+Use a provider that passes tool arguments through intact: one DeepSeek host dropped them in our tests ([details](docs/testing.md)).
+</details>
+
+Agents draw better after reading the built-in guide: ask them to call `tldraw_guide` first,
+or install [`skills/ghostdraw`](skills/ghostdraw/SKILL.md) as a skill.
+
+> **Status:** the tools are verified in Chrome 154 by both test layers.
+> The desktop-agent chain (agent → chrome-devtools-mcp → your Chrome) follows Chrome's documentation but has not been run end to end yet.
+
+## What agents can do
+
+<details>
+<summary><b>11 tools</b>, all prefixed <code>tldraw_</code></summary>
+
+| Tool | What it does |
+|---|---|
+| `tldraw_get_canvas` | Read the board: visible area, camera, selection and a compact summary of every shape. |
+| `tldraw_guide` | The built-in guide (workflow, which tool to use, sizes, recipes, gotchas), generated from the skill. |
+| `tldraw_pen` | **Pen mode, the default for drawing.** A few points per stroke become a smooth curve, drawn in real time by the cursor. |
+| `tldraw_create_shapes` | Boxes and 20 geo kinds with labels, text, sticky notes, frames, lines, and arrows that stay attached to shapes. The cursor drags each one out. |
+| `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. The cursor grabs and drags. Exact labels work as ids. |
+| `tldraw_delete_shapes` | Delete by id, `"selected"` or `"all"`. Flagged as consequential so agents can ask first. |
+| `tldraw_arrange` | Select, group, ungroup, align, distribute, bring to front, send to back. |
+| `tldraw_draw_strokes` | Instant strokes with no cursor: the eraser, the laser pointer, or drawing when speed is asked for. |
+| `tldraw_view` | Zoom to fit, zoom to shapes, set the camera, reset zoom. |
+| `tldraw_history` | Undo and redo. One step per call (per stroke for drawing); shared with your own undo. |
+| `tldraw_export` | PNG, SVG, JPEG or WebP, with transparent background, padding, scale and dark mode. Downloads the file, or returns it to the agent. |
+
+Every description states coordinates, return values and failure behaviour, with example inputs for the harder tools.
+Style values are read from the live editor, so they match the running tldraw version.
+</details>
+
+## How it works
+
+```
+your tldraw.com tab
+ └─ GhostDraw content script (runs in the page)
+     ├─ finds tldraw's editor (window.editor)
+     └─ registers tools with document.modelContext  ← WebMCP
+          ├─ pen, highlighter, eraser → pointer events through tldraw's own tools
+          └─ shapes, arrows, edits   → tldraw's editor API, animated by the cursor
+```
+
+Strokes are drawn by *driving tldraw's own pen*, not by writing stroke records, so they get tldraw's real smoothing and pressure.
+Every value is checked with tldraw's own validators before anything is written, because tldraw treats an invalid record as a crash of your board.
 
 ## Testing
 
-Two layers:
+| Layer | What it checks |
+|---|---|
+| `node eval/run-eval.mjs` | 24 deterministic checks, no LLM. Every tool, a crash-proof board, exports, and a cursor that never jumps (tracked every frame). |
+| `node eval/real/run-real-test.mjs` | Real text-only agents draw 7 tasks; a vision model grades the result against a checklist. In CI, comment `/run-real-test` on an issue or PR. |
 
-- **`node eval/run-eval.mjs`** is deterministic and has no LLM. It drives every tool through WebMCP and checks the editor state directly.
-  It also records the Agent cursor every frame and fails on any jump, and checks that off-screen work brings the camera along smoothly.
-- **`node eval/real/run-real-test.mjs`** runs real agents. Text-only testers get a user prompt and the WebMCP tools, and never see an image:
-  dummy `meta-llama/llama-3.1-8b-instruct`, medium `deepseek/deepseek-v4-flash`, and the cheap frontier tiers haiku `anthropic/claude-haiku-5.5` and luna `openai/gpt-5.6-luna`.
-  Opus (`sota`, `anthropic/claude-opus-5.5`) is opt-in because it costs about 20-40x more per run.
-  A vision judge (`google/gemini-3.8-flash`) marks a per-task checklist against a clean export of the board, and structural checks read the editor state.
-  The tasks are in `eval/real/tasks.mjs`; models can be overridden with `TESTER_DUMMY`, `TESTER_MEDIUM`, `TESTER_HAIKU`, `TESTER_LUNA`, `TESTER_SOTA` and `JUDGE_MODEL`.
-  ```bash
-  OPENROUTER_API_KEY=... node eval/real/run-real-test.mjs --testers haiku,luna --tasks flowchart,smiley
-  ```
-  In CI, comment **`/run-real-test`** on an issue or PR (optionally `testers=haiku,sota tasks=smiley`) to get the scorecard back as a comment.
-  The run fails only when a frontier tier (haiku, luna, or sota if included) misses a task; dummy and medium are measured, not gated.
-  It needs the `OPENROUTER_API_KEY` repository secret.
+Latest real-agent run: DeepSeek v4 Flash, Claude Haiku 5.5 and GPT-5.6 Luna each **7/7**, for about $0.10 a run.
+Methods, tiers, results and what real agents taught the tools: [docs/testing.md](docs/testing.md).
 
-Latest full run (2026-11-02, guide-tool mode, about $0.10 for 28 agent runs):
+## Limitations
 
-| | dummy (Llama 3.1 8B) | medium (DeepSeek v4 Flash) | haiku (Claude Haiku 5.5) | luna (GPT-5.6 Luna) |
-|---|---|---|---|---|
-| pass rate | 1/7 | **7/7** | **7/7** | **7/7** |
-| tokens per task | 10k | 40k | 31k | 23k |
+- **Relies on tldraw.com internals.** `window.editor` is not an official tldraw API; if it changes, GhostDraw stops registering tools until updated.
+- **WebMCP is experimental** in Chrome (flag or origin trial), and its API is still changing.
+- **Chrome only**, loaded unpacked for now; it is not on the Chrome Web Store.
+- Shapes created over a frame are not placed inside it, and lines take at most 61 points (use the pen for longer paths).
 
-What the real agents taught the tools (each became a fix):
-- Small models send arrays as JSON strings, guess ids from labels and send arrows without `from`/`to`.
-  The tools now accept these and their errors list the real ids on the page.
-- Agents built "a house" or "a smiley" from rectangles and ellipses. The descriptions and the guide now say that pictures are drawn with the pen.
-- **Provider quality matters as much as the model.** DeepSeek v4 Flash served by DeepInfra (fp8) dropped tool arguments.
-  Asked to make boxes green, it sent `text: ""`, `x: 0, y: 0` and no color, then looped create-delete for 20 turns (about 230k tokens per task).
-  Fireworks, Azure and Parasail got the same request right 9/9, so the medium tier is pinned to them.
+## Development
 
-## Findings
+```bash
+node scripts/build-guide.mjs     # regenerate extension/guide.js after editing skills/ghostdraw/SKILL.md
+node eval/run-eval.mjs           # deterministic suite (needs agent-browser)
+OPENROUTER_API_KEY=... node eval/real/run-real-test.mjs --testers haiku,luna
+```
 
-1. **Feasible today.** `window.editor` exists on tldraw.com, `document.modelContext` is native in Chrome 154 with the flags above, and a MAIN-world content script can register tools for a site it doesn't own.
-2. **Bad agent input can crash the user's board.** tldraw treats a store validation failure (e.g. `color: "not-a-color"`) as fatal: the editor stops handling input until reload. Every prop is therefore checked with tldraw's own validators *before* any store write. The eval asserts the editor never crashes.
-3. **Stylus quirk:** tldraw turns off stylus mode if the first point's pressure is exactly `0`, so pressure is floored at 0.01.
-4. **Injected text is inert:** labels go into tldraw's rich-text model and are never parsed as HTML (an `onerror` payload test passes).
-
-## Limits / risks
-
-- `window.editor` is **undocumented**. If tldraw removes it, the extension stops registering tools; it logs a console warning and does nothing else. Fallback idea, not built: walk React internals from `.tl-container`.
-- WebMCP is at Intent-to-Experiment. The API already moved from `navigator.modelContext` to `document.modelContext`, and both are checked. No polyfill is bundled for browsers without WebMCP.
-- Shapes created over a frame are not reparented into it.
-- `line` is capped at 61 points; use `draw_strokes` for longer paths.
-- The eval drives the tools directly. It has not yet been run with a separate LLM agent choosing the calls.
+Releases are automatic: bump `version` in `extension/manifest.json` and push to `main`.
+The [release workflow](.github/workflows/release.yml) validates the extension, zips it and publishes `ghostdraw-vX.Y.Z.zip` with the skill attached.
