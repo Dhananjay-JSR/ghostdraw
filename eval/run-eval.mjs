@@ -121,6 +121,15 @@ check('pen mode: smooth animated strokes, styles applied, user style and tool re
   assert(state(`return [...document.querySelectorAll('div[aria-hidden] span')].some(s => s.textContent === 'Agent')`), 'cursor overlay with default label missing')
 })
 
+check('pen mode: a loop that repeats its first point and sets closed has no spike at the seam', () => {
+  const ring = Array.from({ length: 10 }, (_, k) => [1000 + 60 * Math.cos((2 * Math.PI * k) / 10), 600 + 60 * Math.sin((2 * Math.PI * k) / 10)])
+  const r = invoke('tldraw_pen', { speed: 3000, strokes: [{ points: [...ring, ring[0]], closed: true, color: 'violet' }] })
+  const b = r.shapes[0].bounds
+  // A seam spike sticks out on the right (where k = 0 is), making the ring visibly wider than tall.
+  assert(Math.abs(b.w - b.h) <= 4, `ring is ${b.w} x ${b.h}; a seam spike makes it wider`)
+  invoke('tldraw_delete_shapes', { ids: r.created, animate: false })
+})
+
 check('pen mode rejects bad input without drawing or crashing', () => {
   const n = count()
   const bad = [

@@ -119,7 +119,12 @@
   // Pen mode: centripetal Catmull-Rom (alpha 0.5, no cusps or self-loops) through the control points,
   // sampled every ~2px of arc length. Points are [x, y, pressure]; pressure is interpolated too.
   const smoothPath = (pts, closed, smooth) => {
-    const P = pts.map((p) => [p[0], p[1], typeof p[2] === 'number' ? p[2] : 0.5])
+    // Repeated points make zero-length spline segments, which show up as cusps; agents often close a loop
+    // by repeating the first point *and* passing closed: true, which put a spike at the seam.
+    const same = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.5
+    const P = pts.map((p) => [p[0], p[1], typeof p[2] === 'number' ? p[2] : 0.5]).filter((p, i, all) => i === 0 || !same(p, all[i - 1]))
+    if (closed && P.length > 2 && same(P[0], P.at(-1))) P.pop()
+    if (P.length < 2) return P.concat(P) // a dot: still gives the pen a down and an up
     if (closed) P.push(P[0])
     const n = P.length
     const at = (i) => {
