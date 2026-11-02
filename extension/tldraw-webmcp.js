@@ -27,6 +27,12 @@
   const enumOf = (editor, type, prop) => [...(editor.getShapeUtil(type).constructor.props[prop]?.values ?? [])]
 
 
+  const richText = (text = '') => ({
+    type: 'doc',
+    content: String(text)
+      .split('\n')
+      .map((line) => (line ? { type: 'paragraph', content: [{ type: 'text', text: line }] } : { type: 'paragraph' })),
+  })
   const plainText = (rt) =>
     rt?.content?.map((p) => p.content?.map((n) => n.text ?? '').join('') ?? '').join('\n') ?? undefined
 
@@ -73,8 +79,32 @@
     }
   }
 
+  // Each builder returns the shape record(s) to create plus optional post-create bindings.
+  const builders = {
+    geo: (editor, s, id) => ({
+      shape: {
+        id, type: 'geo', x: num(s.x, 'x'), y: num(s.y, 'y'), rotation: s.rotation ?? 0,
+        props: {
+          geo: s.geo ?? 'rectangle', w: num(s.w ?? 100, 'w'), h: num(s.h ?? 100, 'h'),
+          ...(s.text !== undefined && { richText: richText(s.text) }),
+          ...stylePatch(editor, 'geo', s),
+        },
+      },
+    }),
+    text: (editor, s, id) => ({
+      shape: { id, type: 'text', x: num(s.x, 'x'), y: num(s.y, 'y'), props: { richText: richText(s.text), ...stylePatch(editor, 'text', s) } },
+    }),
+    note: (editor, s, id) => ({
+      shape: { id, type: 'note', x: num(s.x, 'x'), y: num(s.y, 'y'), props: { richText: richText(s.text), ...stylePatch(editor, 'note', s) } },
+    }),
+    frame: (editor, s, id) => ({
+      shape: { id, type: 'frame', x: num(s.x, 'x'), y: num(s.y, 'y'), props: { w: num(s.w ?? 320, 'w'), h: num(s.h ?? 180, 'h'), name: s.name ?? '', ...stylePatch(editor, 'frame', s) } },
+    }),
+  }
+
   const point = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 3 }
   const defineTools = (editor) => {
+    const geoProps = editor.getShapeUtil('geo').constructor.props
     const styleSchema = {
       color: { type: 'string', enum: enumOf(editor, 'geo', 'color') },
       fill: { type: 'string', enum: enumOf(editor, 'geo', 'fill') },
@@ -149,6 +179,51 @@
             created.push(...fresh)
           })
           return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
+        },
+      },
+      {
+        name: 'tldraw_create_shapes',
+        description:
+          'Create structured shapes in page coordinates. type "geo" (rectangle, ellipse, star, ... with optional text label), "text", "note" (sticky note), "frame". Returns created ids.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            shapes: {
+              type: 'array',
+              minItems: 1,
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string', enum: Object.keys(builders) },
+                  x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' },
+                  rotation: { type: 'number', description: 'Radians (geo only)' },
+                  geo: { type: 'string', enum: [...(geoProps.geo?.values ?? [])] },
+                  text: { type: 'string', description: 'Label / text content; \\n for new lines' },
+                  name: { type: 'string', description: 'Frame title' },
+                  ...styleSchema,
+                },
+                required: ['type'],
+              },
+            },
+          },
+          required: ['shapes'],
+        },
+        execute: (input) => {
+          const e = getEditor()
+          const { shapes } = parse(input)
+          if (!Array.isArray(shapes) || !shapes.length) throw new Error('shapes must be a non-empty array')
+          const built = shapes.map((s, i) => {
+            const build = builders[s?.type]
+            if (!build) throw new Error(`shapes[${i}].type must be one of ${Object.keys(builders).join(', ')}`)
+            return build(e, s, `shape:webmcp_${crypto.randomUUID()}`)
+          })
+          e.markHistoryStoppingPoint('webmcp:create_shapes')
+          e.run(() => {
+            e.createShapes(built.map((b) => b.shape))
+            const bindings = built.flatMap((b) => b.bindings ?? [])
+            if (bindings.length) e.createBindings(bindings)
+          })
+          return ok({ created: built.map((b) => summarize(e, e.getShape(b.shape.id))) })
         },
       },
     ]
