@@ -21,6 +21,8 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 ## Workflow
 
 1. **Look.** Call `tldraw_get_canvas`. `viewport` is the page area the user can see; existing `bounds` are occupied space.
+   Arrows carry `from` / `to` (the shape ids they connect), so a diagram reads as a graph.
+   To understand freehand sketches you did not draw, call it with `points: true`: each stroke gets a short path you can read as a drawing.
    Done when you have picked a free rectangle inside the viewport for your work.
 2. **Plan.** Work out every coordinate before the first draw call: a grid, consistent sizes, 40-80 px gaps.
    Done when each element has numbers, so no call needs guessing.

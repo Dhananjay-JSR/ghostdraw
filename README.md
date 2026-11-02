@@ -112,7 +112,7 @@ or install [`skills/ghostdraw`](skills/ghostdraw/SKILL.md) as a skill.
 
 | Tool | What it does |
 |---|---|
-| `tldraw_get_canvas` | Read the board: visible area, camera, selection and a compact summary of every shape. |
+| `tldraw_get_canvas` | Read the board: visible area, camera, selection and a compact summary of every shape, with what each arrow connects. `points: true` adds each freehand stroke's path, so a text-only agent can tell what a sketch depicts. |
 | `tldraw_guide` | The built-in guide (workflow, which tool to use, sizes, recipes, gotchas), generated from the skill. |
 | `tldraw_pen` | **Pen mode, the default for drawing.** A few points per stroke become a smooth curve, drawn in real time by the cursor. |
 | `tldraw_create_shapes` | Boxes and 20 geo kinds with labels, text, sticky notes, frames, lines, and arrows that stay attached to shapes. The cursor drags each one out. |
