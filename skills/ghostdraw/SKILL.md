@@ -1,6 +1,6 @@
 ---
 name: ghostdraw
-description: Draw, diagram and edit on a live tldraw.com board through the GhostDraw extension's tools (tldraw_get_canvas, tldraw_pen, tldraw_create_shapes, ...). Use when asked to sketch, draw, diagram or annotate on tldraw, when tools named tldraw_* are available, or when chrome-devtools-mcp offers list_webmcp_tools on a tldraw.com tab.
+description: Draw, diagram and edit on a live tldraw.com board through the GhostDraw extension's tools (tldraw_get_canvas, tldraw_pen, tldraw_create_shapes, ...). Use when asked to sketch, draw, diagram or annotate on tldraw, or when tools named tldraw_* are available.
 ---
 
 # Drawing on tldraw through WebMCP
