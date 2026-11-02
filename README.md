@@ -2,7 +2,7 @@
 
 A Chrome extension that turns an **already-open tldraw.com tab** into a WebMCP server, so an AI agent can draw with the pen, highlighter and eraser and create, edit, arrange and export shapes.
 
-Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **19/19**. Output: `eval/final-scene.png`.
+Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **23/23**. Output: `eval/final-scene.png`.
 
 ## How it works
 
@@ -24,10 +24,10 @@ draw strokes in a compressed base64 path format that changes between versions.
 | Tool | What it does |
 |---|---|
 | `tldraw_get_canvas` | Viewport (page coords), camera, tool, selection, every shape summarized. Read-only. |
-| `tldraw_draw_strokes` | Freehand strokes: `draw` (pen), `highlight`, `eraser`, `laser`. Points `[x,y]` or `[x,y,pressure]` (stylus). Color, size, dash, fill, closed. |
+| `tldraw_draw_strokes` | Instant strokes with no cursor: `eraser`, `laser`, or `draw`/`highlight` when the user asks for speed. Points `[x,y]` or `[x,y,pressure]`. |
 | `tldraw_pen` | **Pen mode.** A few control points per stroke become a smooth curve (centripetal Catmull-Rom), drawn in real time while a labelled agent cursor glides between strokes and follows the pen. `speed`, `smooth` (call-wide or per stroke), `label` (default "Agent"). |
-| `tldraw_create_shapes` | `geo` (20 kinds: rectangle, ellipse, star, …, with labels), `text`, `note`, `frame`, `line` (straight/cubic), `arrow` (bound to shapes, so it follows when they move). |
-| `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. |
+| `tldraw_create_shapes` | `geo` (20 kinds: rectangle, ellipse, star, …, with labels), `text`, `note`, `frame`, `line` (straight/cubic), `arrow` (bound to shapes, so it follows when they move). The Agent cursor draws each one like a person: boxes dragged corner to corner, arrows pulled, lines traced, labels typed (`animate: false` for big batches). |
+| `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. The cursor grabs and drags moved shapes and pulls resize corners. Accepts exact labels as ids. |
 | `tldraw_delete_shapes` | By ids, `"all"` or `"selected"`. Marked consequential (`consequentialHint`) so agents can confirm first. |
 | `tldraw_arrange` | select, group, ungroup, align, distribute, bring_to_front, send_to_back. |
 | `tldraw_view` | zoom_to_fit, zoom_to_shapes, set_camera, reset_zoom. |
@@ -91,6 +91,39 @@ it has not been run end-to-end here yet.
 `--enable-features=WebMCPTesting,DevToolsWebMCPSupport` (the flags agent-browser uses), then go to
 `chrome://extensions` → Developer mode → Load unpacked → `extension/`. You also need an agent that consumes WebMCP in that
 browser, such as Chrome's built-in agent or the MCP-B extension.
+
+## Testing
+
+Two layers:
+
+- **`node eval/run-eval.mjs`** is deterministic and has no LLM. It drives every tool through WebMCP and checks the editor state directly.
+  It also records the Agent cursor every frame and fails on any jump, and checks that off-screen work brings the camera along smoothly.
+- **`node eval/real/run-real-test.mjs`** runs real agents. Text-only testers get a user prompt and the WebMCP tools, and never see an image:
+  dummy `meta-llama/llama-3.1-8b-instruct`, medium `deepseek/deepseek-v4-flash`, and the cheap frontier tiers haiku `anthropic/claude-haiku-5.5` and luna `openai/gpt-5.6-luna`.
+  Opus (`sota`, `anthropic/claude-opus-5.5`) is opt-in because it costs about 20-40x more per run.
+  A vision judge (`google/gemini-3.8-flash`) marks a per-task checklist against a clean export of the board, and structural checks read the editor state.
+  The tasks are in `eval/real/tasks.mjs`; models can be overridden with `TESTER_DUMMY`, `TESTER_MEDIUM`, `TESTER_HAIKU`, `TESTER_LUNA`, `TESTER_SOTA` and `JUDGE_MODEL`.
+  ```bash
+  OPENROUTER_API_KEY=... node eval/real/run-real-test.mjs --testers haiku,luna --tasks flowchart,smiley
+  ```
+  In CI, comment **`/run-real-test`** on an issue or PR (optionally `testers=haiku,sota tasks=smiley`) to get the scorecard back as a comment.
+  The run fails only when a frontier tier (haiku, luna, or sota if included) misses a task; dummy and medium are measured, not gated.
+  It needs the `OPENROUTER_API_KEY` repository secret.
+
+Latest full run (2026-11-02, guide-tool mode, about $0.10 for 28 agent runs):
+
+| | dummy (Llama 3.1 8B) | medium (DeepSeek v4 Flash) | haiku (Claude Haiku 5.5) | luna (GPT-5.6 Luna) |
+|---|---|---|---|---|
+| pass rate | 1/7 | **7/7** | **7/7** | **7/7** |
+| tokens per task | 10k | 40k | 31k | 23k |
+
+What the real agents taught the tools (each became a fix):
+- Small models send arrays as JSON strings, guess ids from labels and send arrows without `from`/`to`.
+  The tools now accept these and their errors list the real ids on the page.
+- Agents built "a house" or "a smiley" from rectangles and ellipses. The descriptions and the guide now say that pictures are drawn with the pen.
+- **Provider quality matters as much as the model.** DeepSeek v4 Flash served by DeepInfra (fp8) dropped tool arguments.
+  Asked to make boxes green, it sent `text: ""`, `x: 0, y: 0` and no color, then looped create-delete for 20 turns (about 230k tokens per task).
+  Fireworks, Azure and Parasail got the same request right 9/9, so the medium tier is pinned to them.
 
 ## Findings
 
