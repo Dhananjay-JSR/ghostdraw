@@ -50,8 +50,15 @@ let ids = {}
 
 check('extension registers all tools via native WebMCP', () => {
   const tools = ab('webmcp', 'list').tools.map((t) => t.name)
-  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen','tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export_svg'])
+  for (const n of ['tldraw_get_canvas', 'tldraw_draw_strokes', 'tldraw_pen', 'tldraw_create_shapes', 'tldraw_update_shapes', 'tldraw_delete_shapes', 'tldraw_arrange', 'tldraw_view', 'tldraw_history', 'tldraw_export_svg'])
     assert(tools.includes(n), `missing ${n}; got ${tools}`)
+})
+
+check('annotations reach the browser under WebMCP names', () => {
+  const by = Object.fromEntries(ab('webmcp', 'list').tools.map((t) => [t.name, t.annotations ?? {}]))
+  assert(by.tldraw_delete_shapes.consequential === true, `delete not consequential: ${JSON.stringify(by.tldraw_delete_shapes)}`)
+  assert(by.tldraw_get_canvas.readOnly === true && by.tldraw_get_canvas.untrustedContent === true, JSON.stringify(by.tldraw_get_canvas))
+  assert(by.tldraw_export_svg.untrustedContent === true, JSON.stringify(by.tldraw_export_svg))
 })
 
 check('delete_shapes "all" gives a clean page', () => {
@@ -162,7 +169,9 @@ check('invalid input is rejected and creates nothing', () => {
   const r6 = invoke('tldraw_draw_strokes', { strokes: [{ points: [[0, 0], [10, 10]], size: 'huge' }] })
   const r7 = invoke('tldraw_arrange', { action: 'align', operation: 'diagonal', ids: [ids.note, ids.star] })
   const r8 = invoke('tldraw_view', { action: 'set_camera', x: 0, y: 0, z: 0 })
-  for (const r of [r1, r2, r3, r4, r5, r6, r7, r8]) assert(r?.error, `expected error, got ${JSON.stringify(r)}`)
+  const r9 = invoke('tldraw_arrange', { action: 'group', ids: [ids.note] })
+  const r10 = invoke('tldraw_arrange', { action: 'ungroup', ids: [ids.note] })
+  for (const r of [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10]) assert(r?.error, `expected error, got ${JSON.stringify(r)}`)
   assert(count() === n, `shape count changed ${n} -> ${count()}`)
   // A store validation failure crashes tldraw for the user; bad agent input must never get that far.
   assert(state('return String(e.getCrashingError())') === 'null', 'editor crashed')
