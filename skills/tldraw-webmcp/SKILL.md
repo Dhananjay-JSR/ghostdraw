@@ -26,7 +26,7 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
    Done when each element has numbers, so no call needs guessing.
 3. **Draw.** Choose the tool from the table below. Batch shapes into one call where you can (one undo step, one round trip).
 4. **Check.** Call `tldraw_get_canvas` again and compare it with the plan: every element present, bounds where planned, labels in place, no unintended overlaps.
-   Use `tldraw_export_svg` with `ids` only when you need the exact rendering.
+   When you need the exact rendering, use `tldraw_export` with `format: "svg"`, `deliver: "return"` and your `ids`.
    Done when every planned element matches.
 5. **Fix.** Adjust with `tldraw_update_shapes`. Use `tldraw_history` undo only right after your own call (see the undo gotcha).
 6. **Show.** If your work extends past the viewport, finish with `tldraw_view` `zoom_to_shapes` on your ids.
@@ -44,6 +44,7 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 | Pointing something out without leaving a mark | `tldraw_draw_strokes` with `tool: "laser"` |
 | Moving, recoloring, relabeling | `tldraw_update_shapes` |
 | Tidying | `tldraw_arrange` (align, distribute, group) |
+| Giving the user an image file (PNG, SVG, transparent) | `tldraw_export` (default `deliver: "download"`) |
 
 ## Sizes and spacing
 

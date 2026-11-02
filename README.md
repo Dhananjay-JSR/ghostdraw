@@ -2,7 +2,7 @@
 
 A Chrome extension that turns an **already-open tldraw.com tab** into a WebMCP server, so an AI agent can draw with the pen, highlighter and eraser and create, edit, arrange and export shapes.
 
-Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **18/18**. Output: `eval/final-scene.png`.
+Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **19/19**. Output: `eval/final-scene.png`.
 
 ## How it works
 
@@ -32,7 +32,7 @@ draw strokes in a compressed base64 path format that changes between versions.
 | `tldraw_arrange` | select, group, ungroup, align, distribute, bring_to_front, send_to_back. |
 | `tldraw_view` | zoom_to_fit, zoom_to_shapes, set_camera, reset_zoom. |
 | `tldraw_history` | undo / redo. One step per create/update/delete/arrange call, one per stroke for drawing tools. The stack is shared with the user. |
-| `tldraw_export_svg` | SVG of the drawing, so the agent can check its own work. |
+| `tldraw_export` | Same as tldraw's Export menu: PNG, SVG, JPEG or WebP, transparent background, padding, scale, dark mode, whole page or selected ids. Downloads the file in the user's browser, or returns it to the agent (SVG text or data URL) so it can inspect its work. |
 
 Style enums are read from the live editor at registration time, so the schemas match the running tldraw version.
 Every description states its coordinate system, return shape and failure behaviour, and the harder tools include an
