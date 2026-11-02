@@ -14,6 +14,7 @@
   <a href="../../releases/latest"><img alt="Latest release" src="https://img.shields.io/badge/download-latest%20release-6D5EF5"></a>
   <a href="../../actions/workflows/release.yml"><img alt="Release build" src="../../actions/workflows/release.yml/badge.svg"></a>
   <a href="../../actions/workflows/real-test.yml"><img alt="Real-agent test" src="../../actions/workflows/real-test.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-111"></a>
 </p>
 
 <p align="center">
@@ -168,3 +169,7 @@ OPENROUTER_API_KEY=... node eval/real/run-real-test.mjs --testers haiku,luna
 
 Releases are automatic: bump `version` in `extension/manifest.json` and push to `main`.
 The [release workflow](.github/workflows/release.yml) validates the extension, zips it and publishes `ghostdraw-vX.Y.Z.zip` with the skill attached.
+
+## License
+
+[MIT](LICENSE). The tldraw name and marks belong to tldraw, Inc. and are used here only to describe compatibility.
