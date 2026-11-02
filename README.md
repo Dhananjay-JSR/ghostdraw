@@ -62,35 +62,85 @@ Each release on the [Releases page](../../releases) has a `tldraw-webmcp-vX.Y.Z.
 CI (`.github/workflows/release.yml`) publishes a release whenever `extension/manifest.json` reaches `main`
 with a version that hasn't been released yet. To ship: bump `"version"` and push.
 
-## Run it
+## Use it in your own Chrome
 
-**With agent-browser (it already turns on WebMCP):**
+No automation tools needed: your normal Chrome, your normal tldraw.com tab, and any agent that speaks MCP.
+
+**1. Turn on WebMCP.** Open `chrome://flags/#enable-webmcp-testing`, set **WebMCP for testing** to **Enabled**, and relaunch Chrome.
+
+![chrome://flags with "WebMCP for testing"](docs/setup/1-flag.png)
+
+**2. Load the extension.** Download `tldraw-webmcp-vX.Y.Z.zip` from [Releases](../../releases) and unzip it.
+Open `chrome://extensions`, switch on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
+
+![chrome://extensions with tldraw WebMCP loaded](docs/setup/2-extension.png)
+
+**3. Open https://www.tldraw.com/.** The tools register as soon as the board loads. To check, open DevTools: the console shows `[tldraw-webmcp] registered tldraw WebMCP tools`.
+
+**4. Let your agent reach the tab.** Agents outside the browser connect through Google's
+[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp). It attaches to the Chrome you already
+have open (Chrome 144+) and exposes the page's WebMCP tools as `list_webmcp_tools` and `execute_webmcp_tool`.
+Open `chrome://inspect/#remote-debugging`, tick **Allow remote debugging for this browser instance**, and accept
+the prompt the first time an agent connects.
+
+![chrome://inspect remote debugging](docs/setup/3-remote-debugging.png)
+
+Remote debugging gives the connected agent control of this browser profile, so enable it only for agents you trust.
+
+**5. Ask for a drawing.** For example: "On my tldraw tab, draw a login flowchart" or "sketch a house".
+The agent cursor draws it in front of you: boxes dragged out, arrows pulled, labels typed, and freehand drawing with the pen.
+
+![The Agent cursor drawing a flowchart on tldraw](docs/setup/4-agent-drawing.png)
+
+### Plug it into an agent
+
+Every agent uses the same MCP server; only the config syntax differs.
+`--autoConnect` attaches to your running Chrome, and `--categoryExperimentalWebmcp` turns on the WebMCP tools (they are off by default).
+
+**Claude Code**
+```bash
+claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
+```
+
+**Codex**
+```bash
+codex mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
+```
+or in `~/.codex/config.toml`:
+```toml
+[mcp_servers.chrome-devtools]
+command = "npx"
+args = ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"]
+```
+
+**DeepSeek, or any other harness**
+- **Harness speaks MCP** (most agent frameworks do): add the same server with its usual `mcpServers` JSON:
+  ```json
+  { "mcpServers": { "chrome-devtools": { "command": "npx", "args": ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"] } } }
+  ```
+- **Your own tool-calling loop on the raw API:** connect an MCP client to that server. Then run three steps:
+  1. Call `list_webmcp_tools` to get the tldraw tools and their JSON schemas, and offer them to the model as functions.
+  2. Run each call the model makes with `execute_webmcp_tool` (`pageId`, `toolName`, and `input` as a JSON string).
+  3. Return the result text to the model.
+
+  `eval/real/run-real-test.mjs` (`runAgent`) is a working reference for that loop with DeepSeek, Haiku and GPT models.
+  Use a provider that passes tool arguments through intact: on OpenRouter, DeepSeek v4 Flash via DeepInfra (fp8) drops arguments (see Testing).
+
+Tell the agent to call `tldraw_guide` first, or install [`skills/tldraw-webmcp`](skills/tldraw-webmcp/SKILL.md) as a skill.
+Smaller models draw noticeably better with the guide.
+
+> Status: each step above follows Chrome's and chrome-devtools-mcp's documentation, and the flag, the extension and remote-debugging pages are real screenshots.
+> The full chain from a desktop agent through chrome-devtools-mcp has not been run end to end yet.
+> The tools themselves are verified in Chrome 154 by both test layers below.
+
+### Automation and CI
+
+For scripted runs and CI, [agent-browser](https://github.com/vercel-labs/agent-browser) launches Chrome with WebMCP already enabled:
 ```bash
 agent-browser --extension ./extension open https://www.tldraw.com/
-agent-browser webmcp list
-agent-browser webmcp invoke tldraw_draw_strokes --params '{"strokes":[{"points":[[100,100],[200,150],[300,100]],"color":"red"}]}'
+agent-browser webmcp invoke tldraw_pen --params '{"strokes":[{"points":[[100,300],[200,200],[300,300]],"color":"red"}]}'
 ```
-
-**From Claude Code (or any MCP client):** agent-browser's MCP server relays WebMCP tools (`agent_browser_webmcp_list/invoke`):
-```bash
-claude mcp add agent-browser -- agent-browser mcp --tools all
-```
-Then ask Claude to open tldraw.com with the extension (it needs the `--extension` flag, or set `AGENT_BROWSER_EXTENSIONS`) and draw.
-
-**From Claude Code into your own open tab (no bridge):** Google's
-[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) exposes page WebMCP tools as
-`list_webmcp_tools` / `execute_webmcp_tool` when started with `--categoryExperimentalWebmcp`, and attaches to the
-Chrome you already have open with `--autoConnect` (or `--browserUrl http://127.0.0.1:9222`):
-```bash
-claude mcp add chrome -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
-```
-Your Chrome needs the extension loaded and WebMCP enabled (below). This path follows chrome-devtools-mcp's docs;
-it has not been run end-to-end here yet.
-
-**In your own Chrome:** WebMCP is experimental. Start Chrome with
-`--enable-features=WebMCPTesting,DevToolsWebMCPSupport` (the flags agent-browser uses), then go to
-`chrome://extensions` → Developer mode → Load unpacked → `extension/`. You also need an agent that consumes WebMCP in that
-browser, such as Chrome's built-in agent or the MCP-B extension.
+Both test layers use this path.
 
 ## Testing
 
