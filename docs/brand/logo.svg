@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Logo: an agent cursor finishing a hand-drawn stroke">
+  <rect width="128" height="128" rx="28" fill="#111"/>
+  <!-- a dot and a stroke: a hand-drawn semicolon, the stroke still being drawn -->
+  <circle cx="30" cy="44" r="8" fill="#fff"/>
+  <path d="M24 88 C 36 62, 50 62, 60 76 S 82 92, 90 66" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+  <!-- the agent cursor that is drawing it -->
+  <path d="M86 52 L86 92 L96 82.5 L103 98 L110 95 L103 79.5 L116.5 79.5 Z" fill="#6D5EF5" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+</svg>
