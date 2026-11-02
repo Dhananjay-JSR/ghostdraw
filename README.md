@@ -2,7 +2,7 @@
 
 A Chrome extension that turns an **already-open tldraw.com tab** into a WebMCP server, so an AI agent can draw with the pen, highlighter and eraser and create, edit, arrange and export shapes.
 
-Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **15/15**. Output: `eval/final-scene.png`.
+Verified 2026-11-02 against tldraw.com in Chrome 154: `node eval/run-eval.mjs` passes **18/18**. Output: `eval/final-scene.png`.
 
 ## How it works
 
@@ -25,16 +25,24 @@ draw strokes in a compressed base64 path format that changes between versions.
 |---|---|
 | `tldraw_get_canvas` | Viewport (page coords), camera, tool, selection, every shape summarized. Read-only. |
 | `tldraw_draw_strokes` | Freehand strokes: `draw` (pen), `highlight`, `eraser`, `laser`. Points `[x,y]` or `[x,y,pressure]` (stylus). Color, size, dash, fill, closed. |
-| `tldraw_pen` | **Pen mode.** A few control points per stroke become a smooth curve (centripetal Catmull-Rom), drawn in real time while a labelled agent cursor glides between strokes and follows the pen. `speed`, `smooth` (call-wide or per stroke), `label`. |
+| `tldraw_pen` | **Pen mode.** A few control points per stroke become a smooth curve (centripetal Catmull-Rom), drawn in real time while a labelled agent cursor glides between strokes and follows the pen. `speed`, `smooth` (call-wide or per stroke), `label` (default "Agent"). |
 | `tldraw_create_shapes` | `geo` (20 kinds: rectangle, ellipse, star, …, with labels), `text`, `note`, `frame`, `line` (straight/cubic), `arrow` (bound to shapes, so it follows when they move). |
 | `tldraw_update_shapes` | Move, resize, rotate, recolor, relabel. |
-| `tldraw_delete_shapes` | By ids, `"all"` or `"selected"`. |
+| `tldraw_delete_shapes` | By ids, `"all"` or `"selected"`. Marked consequential (`consequentialHint`) so agents can confirm first. |
 | `tldraw_arrange` | select, group, ungroup, align, distribute, bring_to_front, send_to_back. |
 | `tldraw_view` | zoom_to_fit, zoom_to_shapes, set_camera, reset_zoom. |
-| `tldraw_history` | undo / redo (each tool call is one undo step). |
+| `tldraw_history` | undo / redo. One step per create/update/delete/arrange call, one per stroke for drawing tools. The stack is shared with the user. |
 | `tldraw_export_svg` | SVG of the drawing, so the agent can check its own work. |
 
 Style enums are read from the live editor at registration time, so the schemas match the running tldraw version.
+Every description states its coordinate system, return shape and failure behaviour, and the harder tools include an
+example input, so smaller models can call them without trial and error.
+
+### Agent skill
+
+[`skills/tldraw-webmcp/SKILL.md`](skills/tldraw-webmcp/SKILL.md) teaches an agent the workflow (look → plan →
+draw → check → show), which tool to pick, sizing rules and recipes (flowcharts, circles, sticky boards). Drop the
+folder into `.claude/skills/` (or your agent's skill or prompt directory). It is also attached to every release.
 
 ### Pen mode
 
