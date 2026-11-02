@@ -33,6 +33,8 @@
   Desktop agents connect through Chrome's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp); there is nothing to host.
 - **Built for cheap models too.** It accepts the mistakes small models make, its errors say how to fix the call, and it ships its own guide.
   In CI, DeepSeek v4 Flash, Claude Haiku 5.5 and GPT-5.6 Luna each pass all 7 real drawing tasks ([details](docs/testing.md)).
+- **More reliable than a screenshot agent.** The same models on the same 7 tasks on tldraw.com passed **21 of 21** through GhostDraw.
+  Driving tldraw's own UI from screenshots, mouse and keyboard, they passed 11 of 21, with 7× more steps ([comparison](docs/vs-browser-agent.md)).
 - **Safe with your work.** Bad input is rejected before it can touch your board. Every agent call is one undo step, and delete is flagged so agents can ask first.
 
 ## Quick start
@@ -146,11 +148,27 @@ Every value is checked with tldraw's own validators before anything is written, 
 
 | Layer | What it checks |
 |---|---|
-| `node eval/run-eval.mjs` | 24 deterministic checks, no LLM. Every tool, a crash-proof board, exports, and a cursor that never jumps (tracked every frame). |
+| `node eval/run-eval.mjs` | 25 deterministic checks, no LLM. Every tool, a crash-proof board, exports, and a cursor that never jumps (tracked every frame). |
 | `node eval/real/run-real-test.mjs` | Real text-only agents draw 7 tasks; a vision model grades the result against a checklist. In CI, comment `/run-real-test` on an issue or PR. |
 
 Latest real-agent run: DeepSeek v4 Flash, Claude Haiku 5.5 and GPT-5.6 Luna each **7/7**, for about $0.10 a run.
 Methods, tiers, results and what real agents taught the tools: [docs/testing.md](docs/testing.md).
+
+### GhostDraw vs a browser agent
+
+The same model gets the same prompt on live tldraw.com twice: once with GhostDraw's tools, and once as a browser agent that sees screenshots and uses the mouse and keyboard (what browser-use or agent-browser give an agent).
+Both are graded only on the final board: editor-state checks plus a vision judge.
+
+| Model | GhostDraw | Browser agent |
+|---|---|---|
+| Claude Haiku 5.5 | **7/7** | 5/7 |
+| GPT-5.6 Luna | **7/7** | 3/7 |
+| DeepSeek v4 Flash *(text only, no vision)* | **7/7** | 3/7 |
+| Tool calls · time · cost (all 21 runs) | **81 · 5.8 min · $0.09** | 541 · 17.7 min · $0.14 |
+
+Browser agents struggled most with structure: arrows that look connected but aren't attached (all 3 models, on the flowchart), and alignment.
+A text-only model can use GhostDraw fully, because it never needs to see the board.
+One run per model and task, so treat it as directional. Full report and how to rerun it: [docs/vs-browser-agent.md](docs/vs-browser-agent.md).
 
 ## Limitations
 
