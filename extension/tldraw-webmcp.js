@@ -393,6 +393,49 @@
           return ok({ action, ids, selectedIds: e.getSelectedShapeIds() })
         },
       },
+      {
+        name: 'tldraw_view',
+        description: 'Move the camera: "zoom_to_fit" (all shapes), "zoom_to_shapes" (ids), "set_camera" ({x, y, z}), "reset_zoom".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['zoom_to_fit', 'zoom_to_shapes', 'set_camera', 'reset_zoom'] },
+            ids: { type: 'array', items: { type: 'string' } },
+            x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' },
+          },
+          required: ['action'],
+        },
+        annotations: { readOnlyHint: true },
+        execute: (input) => {
+          const e = getEditor()
+          const a = parse(input)
+          if (a.action === 'zoom_to_fit') e.zoomToFit()
+          else if (a.action === 'reset_zoom') e.resetZoom()
+          else if (a.action === 'set_camera') e.setCamera({ x: num(a.x, 'x'), y: num(a.y, 'y'), z: num(a.z ?? 1, 'z') })
+          else if (a.action === 'zoom_to_shapes') {
+            const ids = resolveIds(e, a.ids)
+            const b = e.getShapesPageBounds(ids)
+            if (b) e.zoomToBounds(b, { inset: 64 })
+          } else throw new Error(`unknown action: ${a.action}`)
+          return ok({ camera: e.getCamera(), viewport: e.getViewportPageBounds() })
+        },
+      },
+      {
+        name: 'tldraw_history',
+        description: 'Undo or redo the last change(s). Each WebMCP tool call is one undo step.',
+        inputSchema: {
+          type: 'object',
+          properties: { action: { type: 'string', enum: ['undo', 'redo'] }, steps: { type: 'integer', minimum: 1, maximum: 50, default: 1 } },
+          required: ['action'],
+        },
+        execute: (input) => {
+          const e = getEditor()
+          const { action, steps = 1 } = parse(input)
+          if (action !== 'undo' && action !== 'redo') throw new Error('action must be undo or redo')
+          for (let i = 0; i < Math.min(50, Math.max(1, steps)); i++) e[action]()
+          return ok({ action, shapeCount: e.getCurrentPageShapeIds().size })
+        },
+      },
     ]
   }
 
