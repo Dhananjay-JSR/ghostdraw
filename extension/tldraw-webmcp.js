@@ -79,7 +79,8 @@
     const at = (p, i) => {
       if (!Array.isArray(p) || p.length < 2) throw new Error(`points[${i}] must be [x, y] or [x, y, pressure]`)
       const s = editor.pageToScreen({ x: num(p[0], `points[${i}][0]`), y: num(p[1], `points[${i}][1]`) })
-      return { x: s.x, y: s.y, z: typeof p[2] === 'number' ? Math.min(1, Math.max(0, p[2])) : 0.5 }
+      // tldraw drops stylus mode when the first pressure is exactly 0, so pen pressure is floored at 0.01.
+      return { x: s.x, y: s.y, z: typeof p[2] === 'number' ? Math.min(1, Math.max(0.01, p[2])) : 0.5 }
     }
     const prevTool = editor.getCurrentToolId()
     editor.setCurrentTool(tool)
