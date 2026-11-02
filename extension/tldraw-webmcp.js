@@ -538,12 +538,12 @@
         name: 'tldraw_guide',
         description:
           'How to draw well with these tools: the workflow, which tool for which job, sizes and spacing, recipes (flowcharts, circles, sticky-note boards) and gotchas. ' +
-          'Read it once before your first drawing task; omit topic for the workflow plus the topic list. Returns markdown.',
+          'Read it once before your first drawing task; omit topic for the workflow, which tool to use, and the topic list. Returns markdown.',
         inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: GUIDE_TOPICS } } },
         annotations: { readOnlyHint: true },
         execute: (input) => {
           const { topic } = parse(input)
-          if (topic === undefined) return `${GUIDE.workflow}\n\nMore topics (pass as "topic"): ${GUIDE_TOPICS.filter((t) => t !== 'workflow').join(', ')}`
+          if (topic === undefined) return `${GUIDE.workflow}\n\n${GUIDE.choosing ?? ''}\n\nMore topics (pass as "topic"): ${GUIDE_TOPICS.filter((t) => t !== 'workflow' && t !== 'choosing').join(', ')}`
           if (!GUIDE[topic] || !GUIDE_TOPICS.includes(topic)) throw new Error(`topic must be one of ${GUIDE_TOPICS.join(', ')}`)
           return GUIDE[topic]
         },
@@ -690,7 +690,9 @@
       {
         name: 'tldraw_create_shapes',
         description:
-          'Create precise shapes, all in one undo step. x, y is the top-left corner in page coordinates. Fields per type (others are ignored): ' +
+          'Diagram building blocks: labelled boxes, sticky notes, frames, text and connectors, all in one undo step. ' +
+          'To draw a picture of anything (a house, smiley, face, tree, car, animal, doodle), use tldraw_pen, even when it could be built from circles and rectangles: users expect to watch it drawn by hand. ' +
+          'x, y is the top-left corner in page coordinates. Fields per type (others are ignored): ' +
           '"geo": x, y, w, h (default 100x100), geo (rectangle default, ellipse, diamond, star, cloud, heart, ...), text (label centered inside), rotation (radians, pivots on the top-left corner), styles. ' +
           '"text": x, y, text (box sizes itself to the text), color, size, font. ' +
           '"note": x, y, text, color (sticky note, always 200x200). ' +

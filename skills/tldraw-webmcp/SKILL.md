@@ -32,13 +32,13 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
 6. **Show.** The camera follows the cursor automatically; finish with `tldraw_view` `zoom_to_shapes` on your ids when the whole result should be in view.
 
 The user watches every change: the Agent cursor drags boxes out, pulls arrows, types labels and draws pen strokes in real time.
-Keep that experience: leave `animate` at its default and draw anything freehand with `tldraw_pen`.
+Keep that experience: leave `animate` at its default and draw every picture with `tldraw_pen`. A picture of a thing (house, smiley, tree, car) is a drawing, even when it could be built from circles and rectangles; `tldraw_create_shapes` is for diagrams and labelled boxes.
 
 ## Choosing a tool
 
 | Goal | Tool |
 |---|---|
-| Anything freehand: sketches, doodles, faces, houses, curves, circles, waves, underlines | `tldraw_pen` (few control points, smooth curve, animated cursor) |
+| Any picture or sketch: houses, smileys, faces, objects, doodles, curves, circles, waves, underlines | `tldraw_pen` (few control points, smooth curve, animated cursor) |
 | Boxes, labels, diagrams, sticky notes, frames, exact geometry | `tldraw_create_shapes` |
 | Connectors that stay attached when shapes move | `tldraw_create_shapes` type `arrow` with `{"shapeId"}` ends, in a second call after the shapes exist |
 | Highlighting existing content | `tldraw_pen` with `tool: "highlight"` |
