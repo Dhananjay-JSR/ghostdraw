@@ -169,6 +169,24 @@ const judge = async (task, dataUrl) => {
   }
 }
 
+// Waits for the board to settle (drawing may outlive the agent's last call), then reads when the first change
+// appeared, the longest stretch with no change at all, and when the last change landed, in seconds.
+const boardTiming = async ({ evalJs }, pageT0) => {
+  let last = -1
+  for (let quiet = 0, i = 0; quiet < 4 && i < 180; i++) {
+    const n = await evalJs('return window.__gdEvents.length')
+    quiet = n === last ? quiet + 1 : 0
+    last = n
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  const ev = await evalJs('window.__gdStop?.(); return window.__gdEvents')
+  if (!ev.length) return { first: null, freeze: null, done: null }
+  const s = (ms) => +(ms / 1000).toFixed(1)
+  let freeze = ev[0] - pageT0
+  for (let i = 1; i < ev.length; i++) freeze = Math.max(freeze, ev[i] - ev[i - 1])
+  return { first: s(ev[0] - pageT0), freeze: s(freeze), done: s(ev.at(-1) - pageT0) }
+}
+
 // ---------- run ----------
 const runTester = async ({ tier, model, provider, options }) => {
   const session = `real-test-${tier}`
@@ -191,6 +209,8 @@ const runTester = async ({ tier, model, provider, options }) => {
       ;(${(task.setup ?? (() => {})).toString()})(e)
       return true`)
     const t0 = Date.now()
+    // Responsiveness: tldraw's own change feed, so it counts what the user sees, not what the agent says.
+    const pageT0 = await b.evalJs(`window.__gdEvents = []; window.__gdStop?.(); window.__gdStop = e.store.listen(() => window.__gdEvents.push(performance.now()), { source: 'all', scope: 'document' }); return performance.now()`)
     let log
     try {
       log = await runAgent(b, { model, provider, options }, task.prompt, toolDefs)
@@ -198,6 +218,7 @@ const runTester = async ({ tier, model, provider, options }) => {
       log = { toolCalls: [], turns: 0, toolErrors: 0, badArgs: 0, cost: 0, tokens: 0, final: '', stop: `error: ${err.message.slice(0, 200)}` }
     }
     const seconds = Math.round((Date.now() - t0) / 1000)
+    const timing = await boardTiming(b, pageT0)
     const facts = await collectFacts(b, log.toolCalls, downloadsDir, before)
     await b.evalJs('e.selectNone(); if (e.getCurrentPageShapeIds().size) e.zoomToFit({ animation: { duration: 0 } }); return true')
     await b.ab('wait', '400')
@@ -215,9 +236,9 @@ const runTester = async ({ tier, model, provider, options }) => {
       : { met: task.criteria.map(() => false), score: 0, reason: 'board is empty', cost: 0 }
     if (image) writeFileSync(shot.replace(/\.png$/, '.export.png'), Buffer.from(image.split(',')[1], 'base64'))
     const pass = checks.every((c) => c.ok) && grade.met.filter(Boolean).length / grade.met.length >= 0.75
-    const row = { task: task.id, tier, model, pass, score: grade.score, met: grade.met, reason: grade.reason, checks, seconds, ...log, cost: log.cost + grade.cost, shot: path.basename(shot) }
+    const row = { task: task.id, tier, model, timing, pass, score: grade.score, met: grade.met, reason: grade.reason, checks, seconds, ...log, cost: log.cost + grade.cost, shot: path.basename(shot) }
     rows.push(row)
-    console.log(`${pass ? 'PASS' : 'FAIL'}  ${tier.padEnd(6)} ${task.id.padEnd(14)} score ${grade.score}  calls ${log.toolCalls.length} errors ${log.toolErrors}  ${seconds}s  $${row.cost.toFixed(4)}  ${checks.filter((c) => !c.ok).map((c) => '✗ ' + c.name).join(', ')}`)
+    console.log(`${pass ? 'PASS' : 'FAIL'}  ${tier.padEnd(6)} ${task.id.padEnd(14)} score ${grade.score}  calls ${log.toolCalls.length} errors ${log.toolErrors}  ${seconds}s  first ${timing.first}s freeze ${timing.freeze}s done ${timing.done}s  $${row.cost.toFixed(4)}  ${checks.filter((c) => !c.ok).map((c) => '✗ ' + c.name).join(', ')}`)
   }
   await run('agent-browser', ['close'], { env: { ...process.env, AGENT_BROWSER_SESSION: session } }).catch(() => {})
   return rows
@@ -239,6 +260,12 @@ const md = [
     return `${r.pass ? '✅' : '❌'} ${Number.isNaN(r.score) ? '?' : r.score}/10 · ${r.toolCalls.length} calls${r.toolErrors ? ` · ${r.toolErrors} err` : ''}${failed.length ? `<br>✗ ${failed.join('; ')}` : ''}`
   }).join(' | ')} |`),
   `| **pass rate** | ${testers.map((t) => { const rs = rows.filter((r) => r.tier === t.tier); return `**${rs.filter((r) => r.pass).length}/${rs.length}** · $${rs.reduce((s, r) => s + r.cost, 0).toFixed(3)}` }).join(' | ')} |`,
+  '',
+  '### Responsiveness (seconds: first change on the board · longest freeze · drawing finished)',
+  '',
+  `| Task | ${testers.map((t) => t.tier).join(' | ')} |`,
+  `|---|${testers.map(() => '---').join('|')}|`,
+  ...tasks.map((task) => `| ${task.id} | ${testers.map((t) => { const x = rows.find((r) => r.task === task.id && r.tier === t.tier)?.timing ?? {}; return `${x.first ?? '–'} · ${x.freeze ?? '–'} · ${x.done ?? '–'}` }).join(' | ')} |`),
   '',
   '<details><summary>Judge notes</summary>',
   '',
