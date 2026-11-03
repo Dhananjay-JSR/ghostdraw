@@ -22,15 +22,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Validate extension
-        run: |
-          node --check extension/ghostdraw.js
-          node scripts/build-guide.mjs --check
-          node -e '
-            const m = require("./extension/manifest.json")
-            if (m.manifest_version !== 3) throw new Error("manifest_version must be 3")
-            if (!/^\d+(\.\d+){0,3}$/.test(m.version)) throw new Error(`invalid Chrome version: ${m.version}`)
-            for (const cs of m.content_scripts) for (const f of cs.js) require("fs").accessSync(`extension/${f}`)
-          '
+        run: node scripts/check-extension.mjs
 
       - name: Read version
         id: meta

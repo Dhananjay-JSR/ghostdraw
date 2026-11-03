@@ -148,7 +148,7 @@ Every value is checked with tldraw's own validators before anything is written, 
 
 | Layer | What it checks |
 |---|---|
-| `node eval/run-eval.mjs` | 25 deterministic checks, no LLM. Every tool, a crash-proof board, exports, and a cursor that never jumps (tracked every frame). |
+| `node eval/run-eval.mjs` | 26 deterministic checks, no LLM. Every tool, a crash-proof board, exports, and a cursor that never jumps (tracked every frame). |
 | `node eval/real/run-real-test.mjs` | Real text-only agents draw 7 tasks; a vision model grades the result against a checklist. In CI, comment `/run-real-test` on an issue or PR. |
 
 Latest real-agent run: DeepSeek v4 Flash, Claude Haiku 5.5 and GPT-5.6 Luna each **7/7**, for about $0.10 a run.

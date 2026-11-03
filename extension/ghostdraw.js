@@ -307,6 +307,15 @@
     return run
   }
 
+  // Returns `reply` now and lets `drawing` finish on the queue. A failure there (rare: input is checked
+  // before queueing) is reported by the next tool call, so it is never silently lost.
+  let queueError = null
+  const queued = (drawing, reply) => {
+    drawing.then((r) => { const err = typeof r === 'string' && JSON.parse(r).error; if (err) queueError = err }, (err) => { queueError = String(err?.message ?? err) })
+    return reply
+  }
+  const waitOption = { type: 'boolean', default: false, description: 'true: return only after the cursor finishes drawing (slower; the default returns at once and keeps drawing)' }
+
   // ---- Human-style actions: the cursor performs each change the way a person would ----
 
   // Types a label in over ~0.7 s at most, then sets the exact final rich text.
@@ -547,7 +556,7 @@
       {
         name: 'tldraw_get_canvas',
         description:
-          'Read the tldraw board. Call this first, and again after any change you want to check. New to these tools? Read tldraw_guide once. ' +
+          'Read the tldraw board (it waits for drawing in progress to finish). Call this first, and again after any change you want to check. New to these tools? Read tldraw_guide once. ' +
           'All tools use page coordinates: +x is right, +y is down, units are px at 100% zoom. ' +
           'Returns JSON: viewport {x, y, w, h} = the page area currently visible to the user (draw inside it so they see it); ' +
           'camera {x, y, z}; currentTool; selectedIds; shapes[] in back-to-front order, each {id, type, bounds {x, y, w, h}, color, geo, text, ...}. ' +
@@ -645,9 +654,9 @@
         description:
           'Pen mode, the default way to draw anything freehand: strokes, sketches, doodles, curves, circles, underlines, highlights. The user watches it happen. Give 3-12 control points per stroke; the curve passes through every point, smoothly (centripetal Catmull-Rom), and is drawn in real time while a labelled cursor glides between strokes and follows the pen. ' +
           'For sharp corners (boxes, zigzags) set smooth: false on that stroke. For the eraser or the laser use tldraw_draw_strokes. ' +
-          'Timing: the call returns when drawing finishes, after about (total stroke length in px) / speed seconds plus up to 0.7 s per stroke for the cursor to travel; keep one call under ~30 s by splitting big drawings. ' +
+          'Draw one recognisable part per call (about 3-6 strokes: the walls, then the roof, then the door), most recognisable part first. The call returns as soon as the strokes are checked, and the cursor keeps drawing while you plan the next part; tools that read or change the board wait for it to finish. Pass wait: true to return only after drawing. ' +
           'Example: {"strokes": [{"points": [[200,300],[300,200],[400,300]], "color": "red"}, {"points": [[200,300],[200,450],[400,450],[400,300]], "smooth": false}]}. ' +
-          'Returns JSON {created: [ids], shapes: [summaries]}. Each stroke is its own undo step. The user\'s own pen color and tool are restored afterwards. On invalid input returns {"error": "..."} and draws nothing.',
+          'Returns JSON {drawing: n} (with wait: true, {created: [ids], shapes: [summaries]}). Each stroke is its own undo step. The user\'s own pen color and tool are restored afterwards. On invalid input returns {"error": "..."} and draws nothing.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -669,14 +678,15 @@
             speed: { type: 'number', minimum: 100, maximum: 5000, default: 900, description: 'Pen speed in page px per second' },
             smooth: { type: 'boolean', default: true, description: 'false joins points with straight segments (still animated)' },
             label: { type: 'string', maxLength: 40, default: 'GhostDraw', description: 'Name shown on the cursor; pass your agent or model name to show it instead' },
+            wait: waitOption,
           },
           required: ['strokes'],
         },
-        execute: (input, ctx) =>
-          serially(async () => {
+        execute: (input, ctx) => {
             const e = getEditor()
-            const { strokes, speed = 900, smooth = true, label = 'GhostDraw' } = parse(input)
-            const signal = ctx?.signal
+            const { strokes, speed = 900, smooth = true, label = 'GhostDraw', wait: waitForDrawing = false } = parse(input)
+            // A queued drawing outlives this call, so only a waiting call can be cancelled by it.
+            const signal = waitForDrawing ? ctx?.signal : undefined
             if (!Array.isArray(strokes) || !strokes.length) throw new Error('strokes must be a non-empty array')
             if (!(num(speed, 'speed') >= 100 && speed <= 5000)) throw new Error('speed must be between 100 and 5000')
             const plans = strokes.map((s, i) => {
@@ -693,6 +703,7 @@
               return { s, tool, isPen, samples: smoothPath(s.points, !!s.closed && s.points.length > 2, s.smooth ?? smooth) }
             })
 
+            const drawing = serially(async () => {
             // Style the pen before drawing so the stroke appears in its final color, then restore the user's choice.
             const styleProps = e.getShapeUtil('draw').constructor.props
             const keys = ['color', 'fill', 'dash', 'size'].filter((k) => styleProps[k]?.id)
@@ -721,7 +732,9 @@
             }
             if (signal?.aborted) throw new Error(`aborted after ${created.length} stroke(s)`)
             return ok({ created, shapes: created.map((id) => summarize(e, e.getShape(id))) })
-          }),
+            })
+            return waitForDrawing ? drawing : queued(drawing, ok({ drawing: plans.length }))
+          },
       },
       {
         name: 'tldraw_create_shapes',
@@ -736,9 +749,9 @@
           '"line": points (2-61 page points), spline ("line" straight segments or "cubic" smooth), styles. ' +
           '"arrow": from, to (page point or {"shapeId"}; shape-attached arrows follow their shapes), text (label), bend (px, curves the arrow), kind ("arc" or "elbow"), arrowheadStart/arrowheadEnd (default none/arrow). ' +
           'Create the shapes first, then arrows between their returned ids in a second call. ' +
-          'The GhostDraw cursor draws each shape like a person (about 0.5-1.5 s per shape) so the user can follow along. ' +
+          'The GhostDraw cursor draws each shape like a person (about 0.5-1.5 s per shape) so the user can follow along. Send one part per call (about 6 shapes or fewer). The call returns the new ids as soon as the input is checked, and the cursor keeps drawing while you plan the next part; pass wait: true to return only after drawing. ' +
           'Example: {"shapes": [{"type": "geo", "x": 100, "y": 100, "w": 160, "h": 80, "text": "Start", "color": "blue", "fill": "semi"}]}. ' +
-          'Returns JSON {created: [summaries with id and bounds]}. On invalid input returns {"error": "..."} and creates nothing.',
+          'Returns JSON {created: [{id, type}]} (with wait: true or animate: false, full summaries with bounds). On invalid input returns {"error": "..."} and creates nothing.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -767,13 +780,16 @@
               },
             },
             animate,
+            wait: waitOption,
           },
           required: ['shapes'],
         },
-        execute: (input, ctx) => {
+        execute: async (input, ctx) => {
           const e = getEditor()
-          const { shapes, animate = true } = parse(input)
+          const { shapes, animate = true, wait: waitForDrawing = false } = parse(input)
           if (!Array.isArray(shapes) || !shapes.length) throw new Error('shapes must be a non-empty array')
+          // Arrows attached to shapes need those shapes on the board, so let queued drawing finish first.
+          if (shapes.some((s) => s?.type === 'arrow' && [s.from, s.to].some((r) => typeof r === 'string' || r?.shapeId || r?.id))) await penQueue
           const built = shapes.map((s, i) => {
             const build = builders[s?.type]
             if (!build) throw new Error(`shapes[${i}].type must be one of ${Object.keys(builders).join(', ')}`)
@@ -781,10 +797,10 @@
             validateProps(e, b.shape.type, b.shape.props)
             return b
           })
-          return withCursor(animate, async () => {
+          const drawing = withCursor(animate, async () => {
             e.markHistoryStoppingPoint('webmcp:create_shapes')
             if (animate) {
-              for (const b of built) await animateCreate(e, b, ctx?.signal)
+              for (const b of built) await animateCreate(e, b, waitForDrawing ? ctx?.signal : undefined)
             } else {
               e.run(() => {
                 e.createShapes(built.map((b) => b.shape))
@@ -794,6 +810,7 @@
             }
             return ok({ created: built.map((b) => e.getShape(b.shape.id)).filter(Boolean).map((s) => summarize(e, s)) })
           })
+          return waitForDrawing || !animate ? drawing : queued(drawing, ok({ created: built.map((b) => ({ id: b.shape.id, type: b.shape.type })) }))
         },
       },
       {
@@ -1062,9 +1079,16 @@
   }
 
   // Wrap so tool errors come back as readable results instead of opaque rejections.
-  const safe = (fn) => async (input, ctx) => {
+  // Drawing tools queue their work; every other tool first waits for it, so reads and edits see a finished board.
+  const DRAWS_IN_BACKGROUND = new Set(['tldraw_pen', 'tldraw_create_shapes'])
+  const safe = (name, fn) => async (input, ctx) => {
     try {
-      return await fn(input, ctx)
+      if (!DRAWS_IN_BACKGROUND.has(name)) await penQueue
+      const out = await fn(input, ctx)
+      if (!queueError) return out
+      const err = queueError
+      queueError = null
+      return JSON.stringify({ ...JSON.parse(out), earlierDrawingFailed: err })
     } catch (err) {
       return JSON.stringify({ error: String(err?.message ?? err) })
     }
@@ -1073,7 +1097,7 @@
   const register = () => {
     const editor = getEditor()
     for (const tool of defineTools(editor)) {
-      mc.registerTool({ ...tool, execute: safe(tool.execute) })
+      mc.registerTool({ ...tool, execute: safe(tool.name, tool.execute) })
     }
     console.info('[ghostdraw] registered tldraw tools')
   }
