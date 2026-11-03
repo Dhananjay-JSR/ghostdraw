@@ -26,7 +26,8 @@ If `tldraw_get_canvas` is missing, open https://www.tldraw.com/ and wait a few s
    Done when you have picked a free rectangle inside the viewport for your work.
 2. **Plan.** Work out every coordinate before the first draw call: a grid, consistent sizes, 40-80 px gaps.
    Done when each element has numbers, so no call needs guessing.
-3. **Draw.** Choose the tool from the table below. Batch shapes into one call where you can (one undo step, one round trip).
+3. **Draw in parts.** Choose the tool from the table below. Send one recognisable part per call (the walls, then the roof, then the door; the boxes, then their arrows), most recognisable part first, at most about 6 strokes or shapes.
+   Send one drawing call per message, not several at once: the cursor starts sooner, and it keeps drawing while you plan the next part.
 4. **Check.** Call `tldraw_get_canvas` again and compare it with the plan: every element present, bounds where planned, labels in place, no unintended overlaps.
    When you need the exact rendering, use `tldraw_export` with `format: "svg"`, `deliver: "return"` and your `ids`.
    Done when every planned element matches.
