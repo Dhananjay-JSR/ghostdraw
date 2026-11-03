@@ -44,7 +44,8 @@ const testers = (arg('--testers')?.split(',') ?? DEFAULT_TESTERS).map((k) => {
   if (!TESTERS[k]) throw new Error(`unknown tester ${k}; use ${Object.keys(TESTERS)}`)
   return { tier: k, model: TESTERS[k], provider: PROVIDERS[k], options: TIER_OPTIONS[k] }
 })
-const tasks = arg('--tasks') ? allTasks.filter((t) => arg('--tasks').split(',').includes(t.id)) : allTasks
+// Opt-in tasks (long, for measuring) run only when named in --tasks.
+const tasks = arg('--tasks') ? allTasks.filter((t) => arg('--tasks').split(',').includes(t.id)) : allTasks.filter((t) => !t.optIn)
 // tool (default, what real agents get): only the in-extension tldraw_guide; system: SKILL.md in the system prompt; none: neither.
 const skillMode = arg('--skill') ?? 'tool'
 if (!['system', 'tool', 'none'].includes(skillMode)) throw new Error('--skill must be system, tool or none')
@@ -194,7 +195,8 @@ const runTester = async ({ tier, model, provider, options }) => {
   const downloadsDir = mkdtempSync(path.join(tmpdir(), `tldraw-real-${tier}-`))
   await run('agent-browser', ['close'], { env: { ...process.env, AGENT_BROWSER_SESSION: session } }).catch(() => {})
   await new Promise((r) => setTimeout(r, 1500))
-  await b.ab('--extension', path.join(root, 'extension'), '--download-path', downloadsDir, 'open', 'https://www.tldraw.com/')
+  // EXTENSION_DIR runs another build (e.g. an older release) through the same harness, for before/after comparisons.
+  await b.ab('--extension', process.env.EXTENSION_DIR ?? path.join(root, 'extension'), '--download-path', downloadsDir, 'open', 'https://www.tldraw.com/')
   await b.ab('wait', '3000')
   const toolDefs = (await b.ab('webmcp', 'list')).tools.filter((t) => skillMode !== 'none' || t.name !== 'tldraw_guide').map((t) => ({
     type: 'function',

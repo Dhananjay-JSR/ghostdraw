@@ -74,6 +74,17 @@ export const tasks = [
     ],
   },
   {
+    id: 'big-scene',
+    // Opt-in: a drawing big enough that how the agent splits it shows in the timing.
+    optIn: true,
+    prompt: 'Draw a detailed city skyline at night: at least six buildings of different heights with lit windows, a crescent moon, a few stars, and a road in front with two cars.',
+    criteria: ['at least six buildings of clearly different heights', 'lit windows on the buildings', 'a crescent moon', 'a few stars in the sky', 'a road in front of the buildings', 'two cars on the road'],
+    checks: [
+      ['15+ drawn parts', (f) => f.shapes.length >= 15],
+      ['drew with smooth pen mode', (f) => called(f, 'tldraw_pen')],
+    ],
+  },
+  {
     id: 'export-png',
     setup: (e) => {
       e.createShapes([
