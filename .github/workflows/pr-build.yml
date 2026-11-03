@@ -24,7 +24,10 @@ jobs:
         id: meta
         run: |
           version=$(node scripts/check-extension.mjs | tail -1)
-          echo "name=ghostdraw-v${version}-pr${{ github.event.pull_request.number }}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          # The PR's own head commit: HEAD here is GitHub's temporary merge commit.
+          sha=${{ github.event.pull_request.head.sha }}
+          echo "sha=${sha::7}" >> "$GITHUB_OUTPUT"
+          echo "name=ghostdraw-v${version}-pr${{ github.event.pull_request.number }}-${sha::7}" >> "$GITHUB_OUTPUT"
 
       # The artifact holds the unpacked extension: unzip it and Load unpacked.
       - name: Upload extension
@@ -43,12 +46,13 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           NAME: ${{ steps.meta.outputs.name }}
           URL: ${{ steps.upload.outputs.artifact-url }}
+          SHA: ${{ steps.meta.outputs.sha }}
         run: |
           marker='<!-- ghostdraw-pr-build -->'
           body="${marker}
           ### Try this PR's extension
 
-          **[Download ${NAME}](${URL})** (built from $(git rev-parse --short HEAD), kept 14 days)
+          **[Download ${NAME}](${URL})** (built from ${SHA}, kept 14 days)
 
           1. Unzip it.
           2. In \`chrome://extensions\` (or \`brave://extensions\`), turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
