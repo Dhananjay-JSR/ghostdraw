@@ -60,14 +60,21 @@ For example: *"On my tldraw tab, draw a login flowchart"* or *"sketch a house"*.
 
 ## Connect your agent
 
-All agents use Chrome's MCP server: `--autoConnect` attaches to your running Chrome (144+), and `--categoryExperimentalWebmcp` turns on the page's WebMCP tools.
+There are two ways in, and both talk to your running Chrome or Brave.
+
+### Option 1: Chrome's official MCP server
+
+`--autoConnect` attaches to your running Chrome (144+), and `--categoryExperimentalWebmcp` turns on the page's WebMCP tools.
+The `--category…=false` flags hide 26 browser tools GhostDraw doesn't need, so your agent sees 8 instead of 34.
 Approve the connection prompt in Chrome the first time.
 
 <details open>
 <summary><b>Claude Code</b></summary>
 
 ```bash
-claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
+claude mcp add chrome-devtools -- npx --yes chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp \
+  --categoryInput=false --categoryEmulation=false --categoryPerformance=false \
+  --categoryNetwork=false --categoryDebugging=false --categoryMemory=false
 ```
 </details>
 
@@ -75,13 +82,15 @@ claude mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect -
 <summary><b>Codex</b></summary>
 
 ```bash
-codex mcp add chrome-devtools -- npx chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp
+codex mcp add chrome-devtools -- npx --yes chrome-devtools-mcp@latest --autoConnect --categoryExperimentalWebmcp \
+  --categoryInput=false --categoryEmulation=false --categoryPerformance=false \
+  --categoryNetwork=false --categoryDebugging=false --categoryMemory=false
 ```
 or in `~/.codex/config.toml`:
 ```toml
 [mcp_servers.chrome-devtools]
 command = "npx"
-args = ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"]
+args = ["--yes", "chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp", "--categoryInput=false", "--categoryEmulation=false", "--categoryPerformance=false", "--categoryNetwork=false", "--categoryDebugging=false", "--categoryMemory=false"]
 ```
 </details>
 
@@ -90,7 +99,7 @@ args = ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWe
 
 If your harness speaks MCP, add the same server:
 ```json
-{ "mcpServers": { "chrome-devtools": { "command": "npx", "args": ["chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp"] } } }
+{ "mcpServers": { "chrome-devtools": { "command": "npx", "args": ["--yes", "chrome-devtools-mcp@latest", "--autoConnect", "--categoryExperimentalWebmcp", "--categoryInput=false", "--categoryEmulation=false", "--categoryPerformance=false", "--categoryNetwork=false", "--categoryDebugging=false", "--categoryMemory=false"] } } }
 ```
 For your own tool-calling loop on a raw API, connect an MCP client to that server, then:
 1. Call `list_webmcp_tools` and offer the tldraw tools to the model as functions.
@@ -104,8 +113,29 @@ Use a provider that passes tool arguments through intact: one DeepSeek host drop
 Agents draw better after reading the built-in guide: ask them to call `tldraw_guide` first,
 or install [`skills/ghostdraw`](skills/ghostdraw/SKILL.md) as a skill.
 
-> **Status:** the tools are verified in Chrome 154 by both test layers.
-> The desktop-agent chain (agent → chrome-devtools-mcp → your Chrome) follows Chrome's documentation but has not been run end to end yet.
+### Option 2: tabwire (shameless plug 🔌)
+
+Yes, I wrote this one too. [tabwire](https://github.com/Dhananjay-JSR/tabwire) is a 0.5 MB Rust binary that wires the tools of your open tabs straight into your agent, and nothing else.
+Your agent sees GhostDraw's 11 `tldraw_*` tools by name: no click, navigate or screenshot tools, and no `list_webmcp_tools` → `execute_webmcp_tool` two-step.
+
+```bash
+tabwire doctor --url tldraw.com                      # checks your setup, lists the tools
+claude mcp add tabwire -- tabwire --url tldraw.com   # Claude Code
+```
+
+| | chrome-devtools-mcp | tabwire |
+|---|---|---|
+| Tools your agent sees | 8–34 browser tools + a proxy | GhostDraw's 11, by name |
+| Can drive your browser | Yes | No, only the page's tools |
+| Runtime | Node via npx | One binary, ~0.2 ms per call |
+
+### Brave
+
+Set `brave://flags/#enable-webmcp-testing` to **Enabled**: "Default (Enabled)" leaves it off.
+Then allow remote debugging at `brave://inspect/#remote-debugging`.
+tabwire finds Brave on its own; for chrome-devtools-mcp, add `--userDataDir <your Brave profile folder>`.
+
+> **Status:** verified end to end with Claude Agent in Zed → chrome-devtools-mcp → Brave, and with tabwire → Chrome with GhostDraw 1.0.0.
 
 ## What agents can do
 
@@ -174,7 +204,7 @@ One run per model and task, so treat it as directional. Full report and how to r
 
 - **Relies on tldraw.com internals.** `window.editor` is not an official tldraw API; if it changes, GhostDraw stops registering tools until updated.
 - **WebMCP is experimental** in Chrome (flag or origin trial), and its API is still changing.
-- **Chrome only**, loaded unpacked for now; it is not on the Chrome Web Store.
+- **Chrome and Brave only**, loaded unpacked for now; it is not on the Chrome Web Store.
 - Shapes created over a frame are not placed inside it, and lines take at most 61 points (use the pen for longer paths).
 
 ## Development
