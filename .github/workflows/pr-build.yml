@@ -1,0 +1,61 @@
+# Builds the extension for every pull request and links the unpacked build on the PR, so a change can be
+# tried in a real browser before it is merged and released.
+name: PR extension build
+
+on:
+  pull_request:
+    paths: ['extension/**', 'skills/**', 'scripts/**', '.github/workflows/pr-build.yml']
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate extension
+        id: meta
+        run: |
+          version=$(node scripts/check-extension.mjs | tail -1)
+          echo "name=ghostdraw-v${version}-pr${{ github.event.pull_request.number }}-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The artifact holds the unpacked extension: unzip it and Load unpacked.
+      - name: Upload extension
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.name }}
+          path: extension/
+          retention-days: 14
+
+      # Fork PRs get a read-only token, so only same-repo PRs get the comment; the artifact is there either way.
+      - name: Comment on the PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          NAME: ${{ steps.meta.outputs.name }}
+          URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          marker='<!-- ghostdraw-pr-build -->'
+          body="${marker}
+          ### Try this PR's extension
+
+          **[Download ${NAME}](${URL})** (built from $(git rev-parse --short HEAD), kept 14 days)
+
+          1. Unzip it.
+          2. In \`chrome://extensions\` (or \`brave://extensions\`), turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
+          3. Open https://www.tldraw.com/ with WebMCP enabled."
+          existing=$(gh api "repos/${{ github.repository }}/issues/${PR}/comments" --paginate --jq ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/${existing}" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" --body "$body"
+          fi
